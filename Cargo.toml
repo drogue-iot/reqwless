@@ -1,0 +1,21 @@
+[package]
+name = "reqwless"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+description = "HTTP client for embedded devices"
+documentation = "https://docs.rs/reqwless"
+readme = "README.md"
+homepage = "https://drogue.io"
+repository = "https://github.com/drogue-iot/reqwless"
+authors = [
+    "Ulf Lilleengen <lulf@redhat.com>"
+]
+license = "Apache-2.0"
+keywords = ["embedded", "async", "http", "no_std"]
+exclude = [".github"]
+
+[dependencies]
+embedded-io = { version = "0.3.0", features = ["async"] }
+heapless = "0.7"
+base64 = {version = "0.13.0", default-features = false }
