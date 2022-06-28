@@ -19,3 +19,5 @@ exclude = [".github"]
 embedded-io = { version = "0.3.0", features = ["async"] }
 heapless = "0.7"
 base64 = {version = "0.13.0", default-features = false }
+log = { version = "0.4", optional = true }
+defmt = { version = "0.3", optional = true }

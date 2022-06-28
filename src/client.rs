@@ -6,6 +6,9 @@ use heapless::String;
 
 use crate::request::*;
 
+/// An async HTTP client that can performs HTTP requests on a connection.
+///
+/// The connection is borrowed for the lifetime of the client and is not closed.
 pub struct HttpClient<'a, N>
 where
     N: Network + 'a,
@@ -18,6 +21,7 @@ impl<'a, N> HttpClient<'a, N>
 where
     N: Network + 'a,
 {
+    /// Create a new HTTP client for a given connection handle and a target host.
     pub fn new(connection: &'a mut N, host: &'a str) -> Self {
         Self { connection, host }
     }
@@ -39,6 +43,11 @@ where
         Ok(())
     }
 
+    /// Perform a HTTP request on the underlying connection. The request is encoded on the
+    /// underlying connection, while the response is stored in the provided rx_buf, which should
+    /// be sized to contain the entire response.
+    ///
+    /// The returned response references data in the provided `rx_buf` argument.
     pub async fn request<'m>(&'m mut self, request: Request<'m>, rx_buf: &'m mut [u8]) -> Result<Response<'m>, Error> {
         self.write_str(request.method.as_str()).await?;
         self.write_str(" ").await?;
@@ -51,7 +60,7 @@ where
             match auth {
                 Auth::Basic { username, password } => {
                     let mut combined: String<128> = String::new();
-                    write!(combined, "{}:{}", username, password).unwrap();
+                    write!(combined, "{}:{}", username, password).map_err(|_| Error::Codec)?;
                     let mut authz = [0; 256];
                     let authz_len = base64::encode_config_slice(combined.as_bytes(), base64::STANDARD, &mut authz);
                     self.write_str("Authorization: Basic ").await?;
@@ -185,12 +194,14 @@ where
     }
 }
 
+/// Errors that can be returned by the HTTP client.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// An error with the underlying network
     Network(embedded_io::ErrorKind),
-    DnsLookupFailed,
-    Parse,
+    /// An error encoding or decoding data
+    Codec,
 }
 
 impl From<embedded_io::ErrorKind> for Error {
