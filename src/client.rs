@@ -75,7 +75,7 @@ where
         }
         if let Some(payload) = request.payload {
             let mut s: String<32> = String::new();
-            write!(s, "{}", payload.len()).map_err(|_| Error::Parse)?;
+            write!(s, "{}", payload.len()).map_err(|_| Error::Codec)?;
             self.write_header("Content-Length", s.as_str()).await?;
         }
         if let Some(extra_headers) = request.extra_headers {
@@ -212,13 +212,13 @@ impl From<embedded_io::ErrorKind> for Error {
 
 impl From<ParseIntError> for Error {
     fn from(_: ParseIntError) -> Error {
-        Error::Parse
+        Error::Codec
     }
 }
 
 impl From<Utf8Error> for Error {
     fn from(_: Utf8Error) -> Error {
-        Error::Parse
+        Error::Codec
     }
 }
 
