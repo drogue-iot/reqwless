@@ -6,7 +6,7 @@
 [![Matrix](https://img.shields.io/matrix/drogue-iot:matrix.org)](https://matrix.to/#/#drogue-iot:matrix.org)
 
 The `reqwless` crate implements an HTTP client that can be used in `no_std` environment, with any transport that implements the 
-traits from the `embedded-io` create.
+traits from the `embedded-io` crate.
 
 The client is still lacking many features, but can perform basic HTTP GET/PUT/POST/DELETE requests with payloads. However, not all content types and status codes are implemented, and are added on a need basis. For TLS, you can use `embedded-tls` as the transport.
 
