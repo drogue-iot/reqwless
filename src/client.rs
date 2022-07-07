@@ -86,12 +86,18 @@ where
         self.write_str("\r\n").await?;
         trace!("Header written");
         match request.payload {
-            None => Self::read_response(self.connection, rx_buf).await,
+            None => {
+                self.connection.flush().await.map_err(|e| Error::Network(e.kind()))?;
+                Self::read_response(self.connection, rx_buf).await
+            }
             Some(payload) => {
                 trace!("Writing data");
                 let result = self.connection.write(payload).await;
                 match result {
-                    Ok(_) => Self::read_response(self.connection, rx_buf).await,
+                    Ok(_) => {
+                        self.connection.flush().await.map_err(|e| Error::Network(e.kind()))?;
+                        Self::read_response(self.connection, rx_buf).await
+                    }
                     Err(e) => {
                         warn!("Error sending data: {:?}", e.kind());
                         Err(Error::Network(e.kind()))
