@@ -182,6 +182,7 @@ impl From<u32> for Status {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ContentType {
+    TextPlain,
     ApplicationJson,
     ApplicationCbor,
     ApplicationOctetStream,
@@ -192,6 +193,7 @@ impl<'a> From<&'a str> for ContentType {
         match from {
             "application/json" => ContentType::ApplicationJson,
             "application/cbor" => ContentType::ApplicationCbor,
+            "text/plain" => ContentType::TextPlain,
             _ => ContentType::ApplicationOctetStream,
         }
     }
@@ -200,6 +202,7 @@ impl<'a> From<&'a str> for ContentType {
 impl ContentType {
     pub fn as_str(&self) -> &str {
         match self {
+            ContentType::TextPlain => "text/plain",
             ContentType::ApplicationJson => "application/json",
             ContentType::ApplicationCbor => "application/cbor",
             ContentType::ApplicationOctetStream => "application/octet-stream",
