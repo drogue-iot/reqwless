@@ -6,7 +6,10 @@
 [![Matrix](https://img.shields.io/matrix/drogue-iot:matrix.org)](https://matrix.to/#/#drogue-iot:matrix.org)
 
 The `reqwless` crate implements an HTTP client that can be used in `no_std` environment, with any transport that implements the 
-traits from the `embedded-io` crate.
+traits from the `embedded-io` crate. It has two sets of APIs:
+
+* A low-level `request` API which allows you to contruct HTTP requests and write them to a `embedded-io` transport.
+* A higher level `client` API which uses the `embedded-nal-async` (+ optional `embedded-tls`) crates to establish TCP + TLS connections.
 
 The client is still lacking many features, but can perform basic HTTP GET/PUT/POST/DELETE requests with payloads. However, not all content types and status codes are implemented, and are added on a need basis. For TLS, you can use `embedded-tls` as the transport.
 
@@ -14,9 +17,8 @@ If you are missing a feature or would like an improvement, please raise an issue
 
 # Minimum supported Rust version (MSRV)
 
-`reqwless` requires two features from `nightly` to compile `embedded-io` with async support:
+`reqwless` requires a feature from `nightly` to compile `embedded-io` with async support:
 
-* `generic_associated_types`
 * `type_alias_impl_trait`
 
-These features are complete, but are not yet merged to `stable`.
+This feature is complete, but is not yet merged to `stable`.
