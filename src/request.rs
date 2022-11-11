@@ -11,7 +11,7 @@ pub struct Request<'a> {
     pub(crate) path: Option<&'a str>,
     pub(crate) auth: Option<Auth<'a>>,
     pub(crate) host: Option<&'a str>,
-    pub(crate) payload: Option<&'a [u8]>,
+    pub(crate) body: Option<&'a [u8]>,
     pub(crate) content_type: Option<ContentType>,
     pub(crate) extra_headers: Option<&'a [(&'a str, &'a str)]>,
 }
@@ -23,7 +23,7 @@ impl<'a> Default for Request<'a> {
             path: None,
             auth: None,
             host: None,
-            payload: None,
+            body: None,
             content_type: None,
             extra_headers: None,
         }
@@ -41,6 +41,16 @@ pub enum Auth<'a> {
 }
 
 impl<'a> Request<'a> {
+    /// Create a new GET http request.
+    pub fn new(method: Method) -> RequestBuilder<'a> {
+        RequestBuilder {
+            request: Request {
+                method,
+                ..Default::default()
+            },
+        }
+    }
+
     /// Create a new GET http request.
     pub fn get() -> RequestBuilder<'a> {
         RequestBuilder {
@@ -112,9 +122,9 @@ impl<'a> Request<'a> {
         if let Some(content_type) = &self.content_type {
             write_header(c, "Content-Type", content_type.as_str()).await?;
         }
-        if let Some(payload) = self.payload {
+        if let Some(body) = self.body {
             let mut s: String<32> = String::new();
-            write!(s, "{}", payload.len()).map_err(|_| Error::Codec)?;
+            write!(s, "{}", body.len()).map_err(|_| Error::Codec)?;
             write_header(c, "Content-Length", s.as_str()).await?;
         }
         if let Some(extra_headers) = self.extra_headers {
@@ -124,11 +134,11 @@ impl<'a> Request<'a> {
         }
         write_str(c, "\r\n").await?;
         trace!("Header written");
-        match self.payload {
+        match self.body {
             None => c.flush().await.map_err(|e| Error::Network(e.kind())),
-            Some(payload) => {
+            Some(body) => {
                 trace!("Writing data");
-                let result = c.write(payload).await;
+                let result = c.write(body).await;
                 match result {
                     Ok(_) => c.flush().await.map_err(|e| Error::Network(e.kind())),
                     Err(e) => {
@@ -154,9 +164,15 @@ impl<'a> RequestBuilder<'a> {
         self
     }
 
-    /// Set the payload to send in the HTTP request body.
-    pub fn payload(mut self, payload: &'a [u8]) -> Self {
-        self.request.payload.replace(payload);
+    /// Set the data to send in the HTTP request body.
+    pub fn body(mut self, body: &'a [u8]) -> Self {
+        self.request.body.replace(body);
+        self
+    }
+
+    /// Set the host header.
+    pub fn host(mut self, host: &'a str) -> Self {
+        self.request.host.replace(host);
         self
     }
 
@@ -211,7 +227,7 @@ pub struct Response<'a> {
     /// The HTTP response content type.
     pub content_type: Option<ContentType>,
     /// The HTTP response body.
-    pub payload: Option<&'a [u8]>,
+    pub body: Option<&'a [u8]>,
 }
 
 impl<'a> Response<'a> {
@@ -273,7 +289,7 @@ impl<'a> Response<'a> {
             pos = 0;
         }
 
-        let payload = if content_length > 0 {
+        let body = if content_length > 0 {
             // We might have data fetched already, keep that
 
             let mut to_read = core::cmp::min(rx_buf.len() - pos, content_length - pos);
@@ -296,17 +312,17 @@ impl<'a> Response<'a> {
                 pos += n;
                 to_read -= n;
             }
-            trace!("http response has {} bytes in payload", pos);
+            trace!("http response has {} bytes in body", pos);
             Some(&rx_buf[..pos])
         } else {
-            trace!("0 bytes in payload");
+            trace!("0 bytes in body");
             None
         };
 
         let response = Response {
             status: status.into(),
             content_type,
-            payload,
+            body,
         };
         //trace!("HTTP response: {:?}", response);
         Ok(response)

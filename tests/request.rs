@@ -36,7 +36,7 @@ async fn test_request_response() {
     let mut stream = FromTokio::new(stream);
 
     let request = Request::post()
-        .payload(b"PING")
+        .body(b"PING")
         .content_type(ContentType::TextPlain)
         .build();
 
@@ -44,7 +44,7 @@ async fn test_request_response() {
     let mut rx_buf = [0; 4096];
     let response = Response::read(&mut stream, &mut rx_buf).await.unwrap();
 
-    assert_eq!(response.payload.unwrap(), b"PING");
+    assert_eq!(response.body.unwrap(), b"PING");
 
     tx.send(()).unwrap();
     t.await.unwrap();
