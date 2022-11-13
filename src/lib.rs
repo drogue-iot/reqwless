@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(type_alias_impl_trait)]
 #![doc = include_str!("../README.md")]
 use core::{num::ParseIntError, str::Utf8Error};
 
@@ -6,6 +7,7 @@ mod fmt;
 
 pub mod client;
 pub mod request;
+mod url;
 
 /// Errors that can be returned by this library.
 #[derive(Debug)]
@@ -17,6 +19,10 @@ pub enum Error {
     Network(embedded_io::ErrorKind),
     /// An error encoding or decoding data
     Codec,
+    /// An error parsing the URL
+    InvalidUrl,
+    /// Tls Error
+    Tls,
 }
 
 impl From<embedded_io::ErrorKind> for Error {
