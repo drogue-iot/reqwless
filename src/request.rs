@@ -227,7 +227,7 @@ pub struct Response<'a> {
     /// The HTTP response content type.
     pub content_type: Option<ContentType>,
     /// The HTTP response body.
-    pub body: Option<&'a [u8]>,
+    pub body: Option<&'a mut [u8]>,
 }
 
 impl<'a> Response<'a> {
@@ -313,7 +313,7 @@ impl<'a> Response<'a> {
                 to_read -= n;
             }
             trace!("http response has {} bytes in body", pos);
-            Some(&rx_buf[..pos])
+            Some(&mut rx_buf[..pos])
         } else {
             trace!("0 bytes in body");
             None
