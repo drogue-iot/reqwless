@@ -8,105 +8,50 @@ use embedded_io::asynch::{Read, Write};
 use embedded_io::Error as _;
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
 use embedded_tls::{Aes128GcmSha256, TlsConnection};
-use rand_core::{CryptoRng, RngCore};
+use rand_chacha::ChaCha8Rng;
+use rand_core::{RngCore, SeedableRng};
 
 /// An async HTTP client that can establish a TCP connection and perform
 /// HTTP requests.
-pub struct HttpClient<'a, T, D, TLS = NoTls>
+pub struct HttpClient<'a, T, D>
 where
     T: TcpConnect + 'a,
     D: Dns + 'a,
-    TLS: Tls + 'a,
 {
     client: &'a T,
     dns: &'a D,
-    tls: TLS,
-}
-
-pub trait Tls {
-    type RNG: RngCore + CryptoRng;
-    fn state(&mut self) -> Option<(&mut Self::RNG, &mut [u8])>;
-}
-
-/// Type for signaling no TLS implementation
-pub struct NoTls;
-
-impl Tls for NoTls {
-    type RNG = NoTls;
-    fn state(&mut self) -> Option<(&mut Self::RNG, &mut [u8])> {
-        None
-    }
+    tls: Option<TlsConfig<'a>>,
 }
 
 /// Type for TLS configuration of HTTP client.
-pub struct TlsConfig<'a, RNG>
-where
-    RNG: RngCore + CryptoRng,
-{
-    rng: &'a mut RNG,
+pub struct TlsConfig<'a> {
+    seed: u64,
     buffer: &'a mut [u8],
 }
 
-impl<'a, RNG> TlsConfig<'a, RNG>
-where
-    RNG: RngCore + CryptoRng,
-{
-    pub fn new(rng: &'a mut RNG, buffer: &'a mut [u8]) -> Self {
-        Self { rng, buffer }
+impl<'a> TlsConfig<'a> {
+    pub fn new(seed: u64, buffer: &'a mut [u8]) -> Self {
+        Self { seed, buffer }
     }
 }
 
-impl<'a, RNG> Tls for TlsConfig<'a, RNG>
-where
-    RNG: RngCore + CryptoRng,
-{
-    type RNG = RNG;
-    fn state(&mut self) -> Option<(&mut Self::RNG, &mut [u8])> {
-        Some((self.rng, self.buffer))
-    }
-}
-
-impl RngCore for NoTls {
-    fn next_u32(&mut self) -> u32 {
-        todo!()
-    }
-    fn next_u64(&mut self) -> u64 {
-        todo!()
-    }
-    fn fill_bytes(&mut self, _: &mut [u8]) {
-        todo!()
-    }
-    fn try_fill_bytes(&mut self, _: &mut [u8]) -> Result<(), rand_core::Error> {
-        todo!()
-    }
-}
-
-impl CryptoRng for NoTls {}
-
-impl<'a, T, D> HttpClient<'a, T, D, NoTls>
+impl<'a, T, D> HttpClient<'a, T, D>
 where
     T: TcpConnect + 'a,
     D: Dns + 'a,
 {
     /// Create a new HTTP client for a given connection handle and a target host.
-    pub fn new(client: &'a T, dns: &'a D) -> HttpClient<T, D, NoTls> {
+    pub fn new(client: &'a T, dns: &'a D) -> Self {
+        Self { client, dns, tls: None }
+    }
+
+    /// Create a new HTTP client for a given connection handle and a target host.
+    pub fn new_with_tls(client: &'a T, dns: &'a D, tls: TlsConfig<'a>) -> Self {
         Self {
             client,
             dns,
-            tls: NoTls,
+            tls: Some(tls),
         }
-    }
-}
-
-impl<'a, T, D, TLS> HttpClient<'a, T, D, TLS>
-where
-    T: TcpConnect + 'a,
-    D: Dns + 'a,
-    TLS: Tls,
-{
-    /// Create a new HTTP client for a given connection handle and a target host.
-    pub fn new_with_tls(client: &'a T, dns: &'a D, tls: TLS) -> Self {
-        Self { client, dns, tls }
     }
 
     async fn connect<'m>(
@@ -129,11 +74,14 @@ where
             .map_err(|e| Error::Network(e.kind()))?;
 
         if url.scheme() == UrlScheme::HTTPS {
-            if let Some((rng, buffer)) = self.tls.state() {
+            if let Some(tls) = self.tls.as_mut() {
                 use embedded_tls::{TlsConfig, TlsContext};
+                let mut rng = ChaCha8Rng::seed_from_u64(tls.seed as u64);
+                tls.seed = rng.next_u64();
                 let config = TlsConfig::new().with_server_name(url.host());
-                let mut conn: TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256> = TlsConnection::new(conn, buffer);
-                conn.open::<_, embedded_tls::NoClock, 0>(TlsContext::new(&config, rng))
+                let mut conn: TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256> =
+                    TlsConnection::new(conn, tls.buffer);
+                conn.open::<_, embedded_tls::NoClock, 0>(TlsContext::new(&config, &mut rng))
                     .await
                     .map_err(|_| Error::Tls)?;
                 Ok(HttpConnection::Tls(conn))

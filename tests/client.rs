@@ -6,6 +6,7 @@ use hyper::server::conn::Http;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
 use rand::rngs::OsRng;
+use rand::RngCore;
 use reqwless::client::{HttpClient, TlsConfig};
 use reqwless::request::{ContentType, Method};
 use std::net::SocketAddr;
@@ -104,9 +105,8 @@ async fn test_request_response_rustls() {
     });
 
     let mut tls_buf: [u8; 16384] = [0; 16384];
-    let mut rng = OsRng;
     let url = format!("https://localhost:{}", addr.port());
-    let mut client = HttpClient::new_with_tls(&TCP, &DNS, TlsConfig::new(&mut rng, &mut tls_buf));
+    let mut client = HttpClient::new_with_tls(&TCP, &DNS, TlsConfig::new(OsRng.next_u64(), &mut tls_buf));
     let mut rx_buf = [0; 4096];
     let response = client
         .request(Method::POST, &url)
