@@ -38,6 +38,7 @@ If you are missing a feature or would like an improvement, please raise an issue
 
 `reqwless` requires a feature from `nightly` to compile `embedded-io` with async support:
 
-* `type_alias_impl_trait`
+* `async_fn_in_trait`
+* `impl_trait_projections`
 
 This feature is complete, but is not yet merged to `stable`.

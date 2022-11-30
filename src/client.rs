@@ -3,7 +3,6 @@ use crate::request::*;
 ///
 use crate::url::{Url, UrlScheme};
 use crate::{request, Error};
-use core::future::Future;
 use embedded_io::asynch::{Read, Write};
 use embedded_io::Error as _;
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
@@ -134,16 +133,10 @@ where
     T: Read + Write,
     S: Read + Write,
 {
-    type ReadFuture<'m> = impl Future<Output = Result<usize, Self::Error>> + 'm
-    where
-        Self: 'm;
-
-    fn read<'m>(&'m mut self, buf: &'m mut [u8]) -> Self::ReadFuture<'m> {
-        async move {
-            match self {
-                Self::Plain(conn) => conn.read(buf).await.map_err(|e| e.kind()),
-                Self::Tls(conn) => conn.read(buf).await.map_err(|e| e.kind()),
-            }
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        match self {
+            Self::Plain(conn) => conn.read(buf).await.map_err(|e| e.kind()),
+            Self::Tls(conn) => conn.read(buf).await.map_err(|e| e.kind()),
         }
     }
 }
@@ -153,29 +146,17 @@ where
     T: Read + Write,
     S: Read + Write,
 {
-    type WriteFuture<'m> = impl Future<Output = Result<usize, Self::Error>> + 'm
-    where
-        Self: 'm;
-
-    fn write<'m>(&'m mut self, buf: &'m [u8]) -> Self::WriteFuture<'m> {
-        async move {
-            match self {
-                Self::Plain(conn) => conn.write(buf).await.map_err(|e| e.kind()),
-                Self::Tls(conn) => conn.write(buf).await.map_err(|e| e.kind()),
-            }
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        match self {
+            Self::Plain(conn) => conn.write(buf).await.map_err(|e| e.kind()),
+            Self::Tls(conn) => conn.write(buf).await.map_err(|e| e.kind()),
         }
     }
 
-    type FlushFuture<'m> = impl Future<Output = Result<(), Self::Error>> + 'm
-    where
-        Self: 'm;
-
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        async move {
-            match self {
-                Self::Plain(conn) => conn.flush().await.map_err(|e| e.kind()),
-                Self::Tls(conn) => conn.flush().await.map_err(|e| e.kind()),
-            }
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        match self {
+            Self::Plain(conn) => conn.flush().await.map_err(|e| e.kind()),
+            Self::Tls(conn) => conn.flush().await.map_err(|e| e.kind()),
         }
     }
 }
