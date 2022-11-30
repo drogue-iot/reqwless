@@ -1,5 +1,7 @@
 #![no_std]
-#![feature(type_alias_impl_trait)]
+#![feature(impl_trait_projections)]
+#![feature(async_fn_in_trait)]
+#![allow(incomplete_features)]
 #![doc = include_str!("../README.md")]
 use core::{num::ParseIntError, str::Utf8Error};
 
