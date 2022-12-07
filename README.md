@@ -32,6 +32,8 @@ let response = client
 
 The client is still lacking many features, but can perform basic HTTP GET/PUT/POST/DELETE requests with payloads. However, not all content types and status codes are implemented, and are added on a need basis.  For TLS, it uses `embedded-tls` as the transport.
 
+NOTE: TLS verification is not supported in no_std environments for `embedded-tls`.
+
 If you are missing a feature or would like an improvement, please raise an issue or a PR.
 
 # Minimum supported Rust version (MSRV)
