@@ -26,11 +26,20 @@ where
 pub struct TlsConfig<'a> {
     seed: u64,
     buffer: &'a mut [u8],
+    verify: TlsVerify<'a>,
+}
+
+/// Supported verification modes.
+pub enum TlsVerify<'a> {
+    /// No verification of the remote host
+    None,
+    /// Use pre-shared keys for verifying
+    Psk { identity: &'a [u8], psk: &'a [u8] },
 }
 
 impl<'a> TlsConfig<'a> {
-    pub fn new(seed: u64, buffer: &'a mut [u8]) -> Self {
-        Self { seed, buffer }
+    pub fn new(seed: u64, buffer: &'a mut [u8], verify: TlsVerify<'a>) -> Self {
+        Self { seed, buffer, verify }
     }
 }
 
@@ -77,10 +86,13 @@ where
                 use embedded_tls::{TlsConfig, TlsContext};
                 let mut rng = ChaCha8Rng::seed_from_u64(tls.seed as u64);
                 tls.seed = rng.next_u64();
-                let config = TlsConfig::new().with_server_name(url.host());
+                let mut config = TlsConfig::new().with_server_name(url.host());
+                if let TlsVerify::Psk { identity, psk } = tls.verify {
+                    config = config.with_psk(psk, &[identity]);
+                }
                 let mut conn: TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256> =
                     TlsConnection::new(conn, tls.buffer);
-                conn.open::<_, embedded_tls::NoClock, 0>(TlsContext::new(&config, &mut rng))
+                conn.open::<_, embedded_tls::NoVerify>(TlsContext::new(&config, &mut rng))
                     .await
                     .map_err(|_| Error::Tls)?;
                 Ok(HttpConnection::Tls(conn))
