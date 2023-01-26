@@ -117,7 +117,7 @@ where
         Error,
     > {
         let url = Url::parse(url)?;
-        let builder: request::RequestBuilder<'m> = Request::new(method).path(url.path()).host(url.host());
+        let builder: request::RequestBuilder<'m> = Request::new(method, url.path()).host(url.host());
 
         let conn = self.connect(&url).await?;
         Ok(HttpRequestBuilder::new(conn, builder))

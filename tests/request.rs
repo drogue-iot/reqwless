@@ -36,7 +36,7 @@ async fn test_request_response() {
     let stream = TcpStream::connect(addr).await.unwrap();
     let mut stream = FromTokio::new(stream);
 
-    let request = Request::post()
+    let request = Request::post("/")
         .body(b"PING")
         .content_type(ContentType::TextPlain)
         .build();

@@ -9,7 +9,7 @@ use heapless::String;
 /// A read only HTTP request type
 pub struct Request<'a> {
     pub(crate) method: Method,
-    pub(crate) path: Option<&'a str>,
+    pub(crate) path: &'a str,
     pub(crate) auth: Option<Auth<'a>>,
     pub(crate) host: Option<&'a str>,
     pub(crate) body: Option<&'a [u8]>,
@@ -21,7 +21,7 @@ impl<'a> Default for Request<'a> {
     fn default() -> Self {
         Self {
             method: Method::GET,
-            path: None,
+            path: "/",
             auth: None,
             host: None,
             body: None,
@@ -43,60 +43,66 @@ pub enum Auth<'a> {
 
 impl<'a> Request<'a> {
     /// Create a new GET http request.
-    pub fn new(method: Method) -> RequestBuilder<'a> {
+    pub fn new(method: Method, path: &'a str) -> RequestBuilder<'a> {
         RequestBuilder {
             request: Request {
                 method,
+                path,
                 ..Default::default()
             },
         }
     }
 
     /// Create a new GET http request.
-    pub fn get() -> RequestBuilder<'a> {
+    pub fn get(path: &'a str) -> RequestBuilder<'a> {
         RequestBuilder {
             request: Request {
                 method: Method::GET,
+                path,
                 ..Default::default()
             },
         }
     }
 
     /// Create a new POST http request.
-    pub fn post() -> RequestBuilder<'a> {
+    pub fn post(path: &'a str) -> RequestBuilder<'a> {
         RequestBuilder {
             request: Request {
                 method: Method::POST,
+                path,
                 ..Default::default()
             },
         }
     }
 
     /// Create a new PUT http request.
-    pub fn put() -> RequestBuilder<'a> {
+    pub fn put(path: &'a str) -> RequestBuilder<'a> {
         RequestBuilder {
             request: Request {
                 method: Method::PUT,
+                path,
                 ..Default::default()
             },
         }
     }
 
     /// Create a new DELETE http request.
-    pub fn delete() -> RequestBuilder<'a> {
+    pub fn delete(path: &'a str) -> RequestBuilder<'a> {
         RequestBuilder {
             request: Request {
                 method: Method::DELETE,
+                path,
                 ..Default::default()
             },
         }
     }
 
     /// Create a new HEAD http request.
-    pub fn head() -> RequestBuilder<'a> {
+    pub fn head(path: &'a str) -> RequestBuilder<'a> {
         RequestBuilder {
             request: Request {
                 method: Method::HEAD,
+                path,
                 ..Default::default()
             },
         }
@@ -109,7 +115,7 @@ impl<'a> Request<'a> {
     {
         write_str(c, self.method.as_str()).await?;
         write_str(c, " ").await?;
-        write_str(c, self.path.unwrap_or("/")).await?;
+        write_str(c, self.path).await?;
         write_str(c, " HTTP/1.1\r\n").await?;
 
         //        write_header(c, "Host", self.host).await?;
@@ -171,7 +177,7 @@ impl<'a> RequestBuilder<'a> {
 
     /// Set the path of the HTTP request.
     pub fn path(mut self, path: &'a str) -> Self {
-        self.request.path.replace(path);
+        self.request.path = path;
         self
     }
 
