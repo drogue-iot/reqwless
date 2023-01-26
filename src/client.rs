@@ -146,7 +146,7 @@ where
     /// The response is returned.
     pub async fn send<'m>(&mut self, request: Request<'m>, rx_buf: &'m mut [u8]) -> Result<Response<'m>, Error> {
         request.write(self).await?;
-        Response::read_headers(self, rx_buf).await
+        Response::read(self, rx_buf).await
     }
 }
 
@@ -240,7 +240,7 @@ where
     pub async fn send(mut self, rx_buf: &mut [u8]) -> Result<(Response, T), Error> {
         let request = self.request.build();
         request.write(&mut self.conn).await?;
-        let response = Response::read_headers(&mut self.conn, rx_buf).await?;
+        let response = Response::read(&mut self.conn, rx_buf).await?;
         Ok((response, self.conn))
     }
 }

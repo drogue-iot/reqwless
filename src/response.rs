@@ -21,7 +21,8 @@ pub struct Response<'a> {
 }
 
 impl<'a> Response<'a> {
-    pub async fn read_headers<C: Read>(conn: &mut C, header_buf: &'a mut [u8]) -> Result<Response<'a>, Error> {
+    // Read at least the headers from the connection.
+    pub async fn read<C: Read>(conn: &mut C, header_buf: &'a mut [u8]) -> Result<Response<'a>, Error> {
         let mut header_len = 0;
         let mut pos = 0;
         while pos < header_buf.len() {
