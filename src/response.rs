@@ -24,11 +24,8 @@ pub struct Response<'a> {
 }
 
 impl<'a> Response<'a> {
-    pub async fn read_headers<C: Read>(
-        conn: &mut C,
-        method: Method,
-        header_buf: &'a mut [u8],
-    ) -> Result<Response<'a>, Error> {
+    // Read at least the headers from the connection.
+    pub async fn read<C: Read>(conn: &mut C, method: Method, header_buf: &'a mut [u8]) -> Result<Response<'a>, Error> {
         let mut header_len = 0;
         let mut pos = 0;
         while pos < header_buf.len() {
@@ -201,12 +198,12 @@ impl<C: Read> BodyReader<'_, C> {
             return Err(Error::BufferTooSmall);
         }
 
-        self.conn.read_exact(&mut buf[..to_read]).await.map_err(|e| match e {
+        self.read_exact(&mut buf[..to_read]).await.map_err(|e| match e {
             ReadExactError::UnexpectedEof => Error::Network(ErrorKind::Other),
-            ReadExactError::Other(e) => e.kind().into(),
+            ReadExactError::Other(e) => e,
         })?;
 
-        self.remaining.replace(0);
+        assert_eq!(0, self.remaining.unwrap_or_default());
 
         Ok(to_read)
     }
