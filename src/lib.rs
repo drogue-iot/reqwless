@@ -8,7 +8,9 @@ use core::{num::ParseIntError, str::Utf8Error};
 mod fmt;
 
 pub mod client;
+pub mod headers;
 pub mod request;
+pub mod response;
 mod url;
 
 /// Errors that can be returned by this library.
