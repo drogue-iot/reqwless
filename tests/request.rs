@@ -1,6 +1,7 @@
 use embedded_io::adapters::FromTokio;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
+use reqwless::request::Method;
 use reqwless::{headers::ContentType, request::Request, response::Response};
 use std::sync::Once;
 use tokio::net::TcpStream;
@@ -42,7 +43,9 @@ async fn test_request_response() {
 
     request.write(&mut stream).await.unwrap();
     let mut rx_buf = [0; 4096];
-    let response = Response::read_headers(&mut stream, &mut rx_buf).await.unwrap();
+    let response = Response::read_headers(&mut stream, Method::POST, &mut rx_buf)
+        .await
+        .unwrap();
     let body = response.body(&mut stream).read_to_end().await;
 
     assert_eq!(body.unwrap(), b"PING");

@@ -3,12 +3,15 @@ use embedded_io::ErrorKind;
 use embedded_io::{asynch::Read, Error as _, Io};
 
 use crate::headers::ContentType;
+use crate::request::Method;
 use crate::Error;
 
 /// Type representing a parsed HTTP response.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Response<'a> {
+    /// The method used to create the response.
+    method: Method,
     /// The HTTP response status code.
     pub status: Status,
     /// The HTTP response content type.
@@ -21,7 +24,11 @@ pub struct Response<'a> {
 }
 
 impl<'a> Response<'a> {
-    pub async fn read_headers<C: Read>(conn: &mut C, header_buf: &'a mut [u8]) -> Result<Response<'a>, Error> {
+    pub async fn read_headers<C: Read>(
+        conn: &mut C,
+        method: Method,
+        header_buf: &'a mut [u8],
+    ) -> Result<Response<'a>, Error> {
         let mut header_len = 0;
         let mut pos = 0;
         while pos < header_buf.len() {
@@ -85,6 +92,7 @@ impl<'a> Response<'a> {
         }
 
         Ok(Response {
+            method,
             status,
             content_type,
             content_length,
@@ -108,23 +116,35 @@ impl<'a> Response<'a> {
     where
         'a: 'conn,
     {
-        // Move the body part of the bytes in the header buffer to the beginning of the buffer
-        let header_buf = self.header_buf;
-        for i in 0..self.body_pos {
-            header_buf[i] = header_buf[self.header_len + i];
-        }
+        if self.method == Method::HEAD {
+            // Head requests does not have a body so we return an empty reader
+            ResponseBody {
+                body_buf: self.header_buf,
+                body_pos: 0,
+                reader: BodyReader {
+                    conn,
+                    remaining: Some(0),
+                },
+            }
+        } else {
+            // Move the body part of the bytes in the header buffer to the beginning of the buffer
+            let header_buf = self.header_buf;
+            for i in 0..self.body_pos {
+                header_buf[i] = header_buf[self.header_len + i];
+            }
 
-        // The header buffer is now the body buffer
-        let body_buf = header_buf;
-        let reader = BodyReader {
-            conn,
-            remaining: self.content_length.map(|cl| cl - self.body_pos),
-        };
+            // The header buffer is now the body buffer
+            let body_buf = header_buf;
+            let reader = BodyReader {
+                conn,
+                remaining: self.content_length.map(|cl| cl - self.body_pos),
+            };
 
-        ResponseBody {
-            body_buf,
-            body_pos: self.body_pos,
-            reader,
+            ResponseBody {
+                body_buf,
+                body_pos: self.body_pos,
+                reader,
+            }
         }
     }
 }

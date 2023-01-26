@@ -195,6 +195,8 @@ impl<'a> RequestBuilder<'a> {
     }
 }
 
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// HTTP request methods
 pub enum Method {
     /// GET
@@ -205,6 +207,8 @@ pub enum Method {
     POST,
     /// DELETE
     DELETE,
+    /// HEAD
+    HEAD,
 }
 
 impl Method {
@@ -215,6 +219,7 @@ impl Method {
             Method::PUT => "PUT",
             Method::GET => "GET",
             Method::DELETE => "DELETE",
+            Method::HEAD => "HEAD",
         }
     }
 }
