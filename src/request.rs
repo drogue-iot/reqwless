@@ -92,6 +92,16 @@ impl<'a> Request<'a> {
         }
     }
 
+    /// Create a new HEAD http request.
+    pub fn head() -> RequestBuilder<'a> {
+        RequestBuilder {
+            request: Request {
+                method: Method::HEAD,
+                ..Default::default()
+            },
+        }
+    }
+
     /// Write request to the I/O stream
     pub async fn write<C>(&self, c: &mut C) -> Result<(), Error>
     where
