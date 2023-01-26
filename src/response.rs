@@ -3,15 +3,12 @@ use embedded_io::ErrorKind;
 use embedded_io::{asynch::Read, Error as _, Io};
 
 use crate::headers::ContentType;
-use crate::request::Method;
 use crate::Error;
 
 /// Type representing a parsed HTTP response.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Response<'a> {
-    /// The method used to create the response.
-    method: Method,
     /// The HTTP response status code.
     pub status: Status,
     /// The HTTP response content type.
@@ -25,7 +22,7 @@ pub struct Response<'a> {
 
 impl<'a> Response<'a> {
     // Read at least the headers from the connection.
-    pub async fn read<C: Read>(conn: &mut C, method: Method, header_buf: &'a mut [u8]) -> Result<Response<'a>, Error> {
+    pub async fn read<C: Read>(conn: &mut C, header_buf: &'a mut [u8]) -> Result<Response<'a>, Error> {
         let mut header_len = 0;
         let mut pos = 0;
         while pos < header_buf.len() {
@@ -89,7 +86,6 @@ impl<'a> Response<'a> {
         }
 
         Ok(Response {
-            method,
             status,
             content_type,
             content_length,
@@ -109,39 +105,24 @@ impl<'a> Response<'a> {
     }
 
     /// Get the response body
-    pub fn body<'conn, C: Read>(self, conn: &'conn mut C) -> ResponseBody<'conn, C>
-    where
-        'a: 'conn,
-    {
-        if self.method == Method::HEAD {
-            // Head requests does not have a body so we return an empty reader
-            ResponseBody {
-                body_buf: self.header_buf,
-                body_pos: 0,
-                reader: BodyReader {
-                    conn,
-                    remaining: Some(0),
-                },
-            }
-        } else {
-            // Move the body part of the bytes in the header buffer to the beginning of the buffer
-            let header_buf = self.header_buf;
-            for i in 0..self.body_pos {
-                header_buf[i] = header_buf[self.header_len + i];
-            }
+    pub fn body<'conn, C: Read>(self, conn: &'conn mut C) -> ResponseBody<'a, 'conn, C> {
+        // Move the body part of the bytes in the header buffer to the beginning of the buffer
+        let header_buf = self.header_buf;
+        for i in 0..self.body_pos {
+            header_buf[i] = header_buf[self.header_len + i];
+        }
 
-            // The header buffer is now the body buffer
-            let body_buf = header_buf;
-            let reader = BodyReader {
-                conn,
-                remaining: self.content_length.map(|cl| cl - self.body_pos),
-            };
+        // The header buffer is now the body buffer
+        let body_buf = header_buf;
+        let reader = BodyReader {
+            conn,
+            remaining: self.content_length.map(|cl| cl - self.body_pos),
+        };
 
-            ResponseBody {
-                body_buf,
-                body_pos: self.body_pos,
-                reader,
-            }
+        ResponseBody {
+            body_buf,
+            body_pos: self.body_pos,
+            reader,
         }
     }
 }
@@ -165,18 +146,18 @@ impl<'a> Iterator for HeaderIterator<'a> {
 /// This type contains the original header buffer provided to `read_headers`,
 /// now renamed to `body_buf`, the number of read body bytes that are available
 /// in `body_buf`, and a reader to be used for reading the remaining body.
-pub struct ResponseBody<'a, C: Read> {
+pub struct ResponseBody<'buf, 'conn, C: Read> {
     /// The buffer initially provided to read the header.
-    pub body_buf: &'a mut [u8],
+    pub body_buf: &'buf mut [u8],
     /// The number bytes raed from the body and available in `body_buf`.
     pub body_pos: usize,
     /// The reader to be used for reading the remaining body.
-    pub reader: BodyReader<'a, C>,
+    pub reader: BodyReader<'conn, C>,
 }
 
-impl<'a, C: Read> ResponseBody<'a, C> {
+impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
     /// Read the entire body
-    pub async fn read_to_end(mut self) -> Result<&'a [u8], Error> {
+    pub async fn read_to_end(mut self) -> Result<&'buf [u8], Error> {
         // Read into the buffer after the portion that was already received when parsing the header
         let len = self.reader.read_to_end(&mut self.body_buf[self.body_pos..]).await?;
         Ok(&self.body_buf[..self.body_pos + len])
