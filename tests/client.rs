@@ -50,7 +50,7 @@ async fn test_request_response_notls() {
     let url = format!("http://127.0.0.1:{}", addr.port());
     let mut client = HttpClient::new(&TCP, &DNS);
     let mut rx_buf = [0; 4096];
-    let response = client
+    let (response, mut conn) = client
         .request(Method::POST, &url)
         .await
         .unwrap()
@@ -59,7 +59,8 @@ async fn test_request_response_notls() {
         .send(&mut rx_buf)
         .await
         .unwrap();
-    assert_eq!(response.body.unwrap(), b"PING");
+    let body = response.body(&mut conn).read_to_end().await;
+    assert_eq!(body.unwrap(), b"PING");
 
     tx.send(()).unwrap();
     t.await.unwrap();
@@ -113,7 +114,7 @@ async fn test_request_response_rustls() {
         TlsConfig::new(OsRng.next_u64(), &mut tls_buf, TlsVerify::None),
     );
     let mut rx_buf = [0; 4096];
-    let response = client
+    let (response, mut conn) = client
         .request(Method::POST, &url)
         .await
         .unwrap()
@@ -122,7 +123,8 @@ async fn test_request_response_rustls() {
         .send(&mut rx_buf)
         .await
         .unwrap();
-    assert_eq!(response.body.unwrap(), b"PING");
+    let body = response.body(&mut conn).read_to_end().await.unwrap();
+    assert_eq!(body, b"PING");
 
     tx.send(()).unwrap();
     t.await.unwrap();

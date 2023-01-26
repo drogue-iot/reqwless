@@ -27,6 +27,14 @@ pub enum Error {
     InvalidUrl,
     /// Tls Error
     Tls,
+    /// The provided buffer is too small
+    BufferTooSmall,
+}
+
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
 }
 
 impl From<embedded_io::ErrorKind> for Error {
