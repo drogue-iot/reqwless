@@ -134,6 +134,22 @@ where
     Tls(S),
 }
 
+impl<T, S> HttpConnection<T, S>
+where
+    T: Read + Write,
+    S: Read + Write,
+{
+    /// Send a request on an already established connection.
+    ///
+    /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
+    ///
+    /// The response is returned.
+    pub async fn send<'m>(&mut self, request: Request<'m>, rx_buf: &'m mut [u8]) -> Result<Response<'m>, Error> {
+        request.write(self).await?;
+        Response::read(self, rx_buf).await
+    }
+}
+
 impl<T, S> embedded_io::Io for HttpConnection<T, S>
 where
     T: Read + Write,
@@ -218,13 +234,13 @@ where
     /// Perform a HTTP request. A connection is created using the underlying client,
     /// and the request is written to the connection.
     ///
-    /// The response is stored in the provided rx_buf, which should be sized to contain the entire response.
+    /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
-    /// The returned response references data in the provided `rx_buf` argument.
-    pub async fn send<'m>(mut self, rx_buf: &'m mut [u8]) -> Result<Response<'m>, Error> {
+    /// The response together with the established connection is returned.
+    pub async fn send(mut self, rx_buf: &mut [u8]) -> Result<(Response, T), Error> {
         let request = self.request.build();
         request.write(&mut self.conn).await?;
         let response = Response::read(&mut self.conn, rx_buf).await?;
-        Ok(response)
+        Ok((response, self.conn))
     }
 }
