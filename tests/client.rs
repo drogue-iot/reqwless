@@ -9,7 +9,7 @@ use hyper::{Body, Server};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
-use reqwless::request::{ContentType, Method};
+use reqwless::{headers::ContentType, request::Method};
 use std::net::SocketAddr;
 use std::sync::Once;
 use tokio::net::TcpListener;

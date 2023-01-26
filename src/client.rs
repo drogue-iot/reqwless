@@ -1,4 +1,6 @@
+use crate::headers::ContentType;
 use crate::request::*;
+use crate::response::*;
 /// Client using embedded-nal-async traits to establish connections and perform HTTP requests.
 ///
 use crate::url::{Url, UrlScheme};
