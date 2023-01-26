@@ -182,12 +182,12 @@ impl<C: Read> BodyReader<'_, C> {
             return Err(Error::BufferTooSmall);
         }
 
-        self.conn.read_exact(&mut buf[..to_read]).await.map_err(|e| match e {
+        self.read_exact(&mut buf[..to_read]).await.map_err(|e| match e {
             ReadExactError::UnexpectedEof => Error::Network(ErrorKind::Other),
-            ReadExactError::Other(e) => e.kind().into(),
+            ReadExactError::Other(e) => e,
         })?;
 
-        self.remaining.replace(0);
+        assert_eq!(0, self.remaining.unwrap_or_default());
 
         Ok(to_read)
     }
