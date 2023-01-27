@@ -10,7 +10,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use reqwless::{headers::ContentType, request::Method};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Once;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
@@ -27,7 +27,8 @@ fn setup() {
 }
 
 static TCP: TokioTcp = TokioTcp;
-static DNS: StaticDns = StaticDns;
+static LOOPBACK_DNS: LoopbackDns = LoopbackDns;
+static PUBLIC_DNS: StdDns = StdDns;
 
 #[tokio::test]
 async fn test_request_response_notls() {
@@ -48,7 +49,7 @@ async fn test_request_response_notls() {
     });
 
     let url = format!("http://127.0.0.1:{}", addr.port());
-    let mut client = HttpClient::new(&TCP, &DNS);
+    let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
     let mut rx_buf = [0; 4096];
     let (response, mut conn) = client
         .request(Method::POST, &url)
@@ -110,7 +111,7 @@ async fn test_request_response_rustls() {
     let url = format!("https://localhost:{}", addr.port());
     let mut client = HttpClient::new_with_tls(
         &TCP,
-        &DNS,
+        &LOOPBACK_DNS,
         TlsConfig::new(OsRng.next_u64(), &mut tls_buf, TlsVerify::None),
     );
     let mut rx_buf = [0; 4096];
@@ -128,6 +129,27 @@ async fn test_request_response_rustls() {
 
     tx.send(()).unwrap();
     t.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_request_response_httpbin() {
+    setup();
+    let mut tls_buf: [u8; 16384] = [0; 16384];
+    let mut client = HttpClient::new_with_tls(
+        &TCP,
+        &PUBLIC_DNS,
+        TlsConfig::new(OsRng.next_u64(), &mut tls_buf, TlsVerify::None),
+    );
+    let mut rx_buf = [0; 4096];
+    let (response, mut conn) = client
+        .request(Method::POST, "https://httpbin.org/post")
+        .await
+        .unwrap()
+        .send(&mut rx_buf)
+        .await
+        .unwrap();
+    let body = response.body(&mut conn).read_to_end().await.unwrap();
+    assert!(!body.is_empty());
 }
 
 fn load_certs(filename: &std::path::PathBuf) -> Vec<rustls::Certificate> {
@@ -156,8 +178,8 @@ fn load_private_key(filename: &std::path::PathBuf) -> rustls::PrivateKey {
     panic!("no keys found in {:?} (encrypted keys not supported)", filename);
 }
 
-struct StaticDns;
-impl embedded_nal_async::Dns for StaticDns {
+struct LoopbackDns;
+impl embedded_nal_async::Dns for LoopbackDns {
     type Error = TestError;
 
     async fn get_host_by_name<'m>(&self, _: &str, _: AddrType) -> Result<IpAddr, Self::Error> {
@@ -167,6 +189,36 @@ impl embedded_nal_async::Dns for StaticDns {
     async fn get_host_by_address(&self, _: IpAddr) -> Result<heapless::String<256>, Self::Error> {
         Err(TestError)
     }
+}
+
+struct StdDns;
+
+impl embedded_nal_async::Dns for StdDns {
+    type Error = std::io::Error;
+
+    async fn get_host_by_name<'m>(
+		&self,
+		host: &str,
+		addr_type: AddrType,
+	) -> Result<IpAddr, Self::Error> {
+        for address in (host, 0).to_socket_addrs()? {
+            match address {
+                SocketAddr::V4(a) if addr_type == AddrType::IPv4 || addr_type == AddrType::Either => {
+                    return Ok(IpAddr::V4(a.ip().octets().into()))
+                }
+                SocketAddr::V6(a) if addr_type == AddrType::IPv6 || addr_type == AddrType::Either => {
+                    return Ok(IpAddr::V6(a.ip().octets().into()))
+                }
+                _ => {}
+            }
+        }
+        Err(std::io::ErrorKind::AddrNotAvailable.into())
+    }
+
+    async fn get_host_by_address(&self, _addr: IpAddr) -> Result<heapless::String<256>, Self::Error> {
+        todo!()
+    }
+    
 }
 
 struct TokioTcp;
@@ -184,10 +236,11 @@ impl embedded_nal_async::TcpConnect for TokioTcp {
     type Connection<'m> = FromTokio<TcpStream>;
 
     async fn connect<'m>(&self, remote: embedded_nal_async::SocketAddr) -> Result<Self::Connection<'m>, Self::Error> {
-        let remote = SocketAddr::new(
-            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
-            remote.port(),
-        );
+        let ip = match remote {
+            embedded_nal_async::SocketAddr::V4(a) => a.ip().octets().into(),
+            embedded_nal_async::SocketAddr::V6(a) => a.ip().octets().into(),
+        };
+        let remote = SocketAddr::new(ip, remote.port());
         let stream = TcpStream::connect(remote).await?;
         let stream = FromTokio::new(stream);
         Ok(stream)
