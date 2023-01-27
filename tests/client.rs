@@ -9,6 +9,7 @@ use hyper::{Body, Server};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
+use reqwless::response::Status;
 use reqwless::{headers::ContentType, request::Method};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Once;
@@ -132,7 +133,7 @@ async fn test_request_response_rustls() {
 }
 
 #[tokio::test]
-async fn test_request_response_httpbin() {
+async fn test_request_response_drogue_cloud_sandbox() {
     setup();
     let mut tls_buf: [u8; 16384] = [0; 16384];
     let mut client = HttpClient::new_with_tls(
@@ -141,13 +142,18 @@ async fn test_request_response_httpbin() {
         TlsConfig::new(OsRng.next_u64(), &mut tls_buf, TlsVerify::None),
     );
     let mut rx_buf = [0; 4096];
+
+    // The endpoint must support TLS1.3
+    // Also, if requests on embedded platforms fail with Error::Dns, then try to
+    // enable the "alloc" feature on embedded-tls to enable RSA ciphers.
     let (response, mut conn) = client
-        .request(Method::POST, "https://httpbin.org/post")
+        .request(Method::POST, "https://http.sandbox.drogue.cloud/v1/telemetry")
         .await
         .unwrap()
         .send(&mut rx_buf)
         .await
         .unwrap();
+    assert_eq!(Status::Forbidden, response.status);
     let body = response.body(&mut conn).read_to_end().await.unwrap();
     assert!(!body.is_empty());
 }
@@ -196,11 +202,7 @@ struct StdDns;
 impl embedded_nal_async::Dns for StdDns {
     type Error = std::io::Error;
 
-    async fn get_host_by_name<'m>(
-		&self,
-		host: &str,
-		addr_type: AddrType,
-	) -> Result<IpAddr, Self::Error> {
+    async fn get_host_by_name<'m>(&self, host: &str, addr_type: AddrType) -> Result<IpAddr, Self::Error> {
         for address in (host, 0).to_socket_addrs()? {
             match address {
                 SocketAddr::V4(a) if addr_type == AddrType::IPv4 || addr_type == AddrType::Either => {
@@ -218,7 +220,6 @@ impl embedded_nal_async::Dns for StdDns {
     async fn get_host_by_address(&self, _addr: IpAddr) -> Result<heapless::String<256>, Self::Error> {
         todo!()
     }
-    
 }
 
 struct TokioTcp;
