@@ -96,7 +96,7 @@ where
                     TlsConnection::new(conn, tls.buffer);
                 conn.open::<_, embedded_tls::NoVerify>(TlsContext::new(&config, &mut rng))
                     .await
-                    .map_err(|_| Error::Tls)?;
+                    .map_err(Error::Tls)?;
                 Ok(HttpConnection::Tls(conn))
             } else {
                 Ok(HttpConnection::Plain(conn))

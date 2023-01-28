@@ -26,7 +26,7 @@ pub enum Error {
     /// An error parsing the URL
     InvalidUrl,
     /// Tls Error
-    Tls,
+    Tls(embedded_tls::TlsError),
     /// The provided buffer is too small
     BufferTooSmall,
 }
@@ -40,6 +40,12 @@ impl embedded_io::Error for Error {
 impl From<embedded_io::ErrorKind> for Error {
     fn from(e: embedded_io::ErrorKind) -> Error {
         Error::Network(e)
+    }
+}
+
+impl From<embedded_tls::TlsError> for Error {
+    fn from(e: embedded_tls::TlsError) -> Error {
+        Error::Tls(e)
     }
 }
 
