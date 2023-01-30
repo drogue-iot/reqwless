@@ -132,7 +132,7 @@ async fn test_request_response_rustls() {
     t.await.unwrap();
 }
 
-#[tokio::test]
+//#[tokio::test]
 async fn test_request_response_drogue_cloud_sandbox() {
     setup();
     let mut tls_buf: [u8; 16384] = [0; 16384];
