@@ -1,14 +1,14 @@
 use crate::headers::ContentType;
 use crate::request::*;
 use crate::response::*;
-/// Client using embedded-nal-async traits to establish connections and perform HTTP requests.
-///
-use crate::url::{Url, UrlScheme};
 use crate::{request, Error};
 use embedded_io::asynch::{Read, Write};
 use embedded_io::Error as _;
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
 use embedded_tls::{Aes128GcmSha256, TlsConnection};
+/// Client using embedded-nal-async traits to establish connections and perform HTTP requests.
+///
+use nourl::{Url, UrlScheme};
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
 
@@ -79,7 +79,7 @@ where
 
         let conn = self
             .client
-            .connect(SocketAddr::new(remote, port))
+            .connect(SocketAddr::new(remote, port.unwrap_or_default()))
             .await
             .map_err(|e| Error::Network(e.kind()))?;
 

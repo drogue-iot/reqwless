@@ -11,7 +11,6 @@ pub mod client;
 pub mod headers;
 pub mod request;
 pub mod response;
-mod url;
 
 /// Errors that can be returned by this library.
 #[derive(Debug)]
@@ -24,7 +23,7 @@ pub enum Error {
     /// An error encoding or decoding data
     Codec,
     /// An error parsing the URL
-    InvalidUrl,
+    InvalidUrl(nourl::Error),
     /// Tls Error
     Tls(embedded_tls::TlsError),
     /// The provided buffer is too small
@@ -58,5 +57,11 @@ impl From<ParseIntError> for Error {
 impl From<Utf8Error> for Error {
     fn from(_: Utf8Error) -> Error {
         Error::Codec
+    }
+}
+
+impl From<nourl::Error> for Error {
+    fn from(e: nourl::Error) -> Self {
+        Error::InvalidUrl(e)
     }
 }
