@@ -26,7 +26,7 @@ log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
 embedded-tls = { version = "0.11", default-features = false, features = ["async"] }
 rand_chacha = { version = "0.3", default-features = false }
-nourl = "0.1.0"
+nourl = "0.1.1"
 
 [dev-dependencies]
 hyper = { version = "0.14.23", features = ["full"] }
@@ -44,4 +44,5 @@ defmt = [
     "dep:defmt",
     "embedded-io/defmt",
     "embedded-tls/defmt",
+    "nourl/defmt",
 ]
