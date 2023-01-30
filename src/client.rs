@@ -69,7 +69,7 @@ where
         url: &Url<'m>,
     ) -> Result<HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>, Error> {
         let host = url.host();
-        let port = url.port();
+        let port = url.port_or_default();
 
         let remote = self
             .dns
@@ -79,7 +79,7 @@ where
 
         let conn = self
             .client
-            .connect(SocketAddr::new(remote, port.unwrap_or_default()))
+            .connect(SocketAddr::new(remote, port))
             .await
             .map_err(|e| Error::Network(e.kind()))?;
 
