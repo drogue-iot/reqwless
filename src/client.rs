@@ -86,7 +86,7 @@ where
         if url.scheme() == UrlScheme::HTTPS {
             if let Some(tls) = self.tls.as_mut() {
                 use embedded_tls::{TlsConfig, TlsContext};
-                let mut rng = ChaCha8Rng::seed_from_u64(tls.seed as u64);
+                let mut rng = ChaCha8Rng::seed_from_u64(tls.seed);
                 tls.seed = rng.next_u64();
                 let mut config = TlsConfig::new().with_server_name(url.host());
                 if let TlsVerify::Psk { identity, psk } = tls.verify {
@@ -106,21 +106,60 @@ where
         }
     }
 
-    /// Build a http request and connect to a HTTP server. The returned request builder can be used to modify request parameters,
-    /// before sending the request.
-    pub async fn request<'m>(
+    pub async fn endpoint<'m>(
         &'m mut self,
-        method: Method,
-        url: &'m str,
+        endpoint_url: &'m str,
     ) -> Result<
-        HttpRequestBuilder<HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>>,
+        HttpEndpoint<'m, HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>>,
         Error,
     > {
-        let url = Url::parse(url)?;
-        let builder: request::RequestBuilder<'m> = Request::new(method, url.path()).host(url.host());
+        let endpoint_url = Url::parse(endpoint_url)?;
 
-        let conn = self.connect(&url).await?;
-        Ok(HttpRequestBuilder::new(conn, builder))
+        let conn = self.connect(&endpoint_url).await?;
+        Ok(HttpEndpoint {
+            conn,
+            host: endpoint_url.host(),
+            base_path: endpoint_url.path(),
+        })
+    }
+}
+
+pub struct HttpEndpoint<'m, C>
+where
+    C: Read + Write,
+{
+    pub conn: C,
+    pub host: &'m str,
+    pub base_path: &'m str,
+}
+
+impl<'conn, C> HttpEndpoint<'conn, C>
+where
+    C: Read + Write,
+{
+    /// Build a http request.
+    ///
+    /// The returned request builder can be used to modify request parameters,
+    /// before sending the request.
+    pub fn request<'m>(&'m mut self, method: Method, path: &'m str) -> HttpRequestBuilder<C> {
+        let builder: request::RequestBuilder<'m> = Request::new(method, path).host(self.host);
+
+        HttpRequestBuilder::new(&mut self.conn, builder)
+    }
+
+    /// Send a request to an endpoint.
+    ///
+    /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
+    ///
+    /// The response is returned.
+    pub async fn send<'buf>(
+        &'conn mut self,
+        mut request: Request<'conn>,
+        rx_buf: &'buf mut [u8],
+    ) -> Result<Response<'buf, 'conn, C>, Error> {
+        request.base_path = Some(self.base_path);
+        request.write(&mut self.conn).await?;
+        Response::read(&mut self.conn, request.method, rx_buf).await
     }
 }
 
@@ -144,7 +183,11 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'m>(&mut self, request: Request<'m>, rx_buf: &'m mut [u8]) -> Result<Response<'m>, Error> {
+    pub async fn send<'buf, 'conn>(
+        &'conn mut self,
+        request: Request<'conn>,
+        rx_buf: &'buf mut [u8],
+    ) -> Result<Response<'buf, 'conn, HttpConnection<T, S>>, Error> {
         request.write(self).await?;
         Response::read(self, request.method, rx_buf).await
     }
@@ -194,16 +237,16 @@ where
 /// An async HTTP connection for performing a HTTP request + response roundtrip.
 ///
 /// The connection is closed when drop'ed.
-pub struct HttpRequestBuilder<'a, T> {
-    conn: T,
+pub struct HttpRequestBuilder<'a, 'conn, T> {
+    conn: &'conn mut T,
     request: RequestBuilder<'a>,
 }
 
-impl<'a, T> HttpRequestBuilder<'a, T>
+impl<'a, 'conn, T> HttpRequestBuilder<'a, 'conn, T>
 where
     T: Write + Read,
 {
-    fn new(conn: T, request: RequestBuilder<'a>) -> Self {
+    fn new(conn: &'conn mut T, request: RequestBuilder<'a>) -> Self {
         Self { conn, request }
     }
 
@@ -231,16 +274,15 @@ where
         self
     }
 
-    /// Perform a HTTP request. A connection is created using the underlying client,
-    /// and the request is written to the connection.
+    /// Perform a HTTP request.
     ///
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response together with the established connection is returned.
-    pub async fn send(mut self, rx_buf: &mut [u8]) -> Result<(Response, T), Error> {
+    pub async fn send<'buf>(mut self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, 'conn, T>, Error> {
         let request = self.request.build();
         request.write(&mut self.conn).await?;
-        let response = Response::read(&mut self.conn, request.method, rx_buf).await?;
-        Ok((response, self.conn))
+        let response = Response::read(self.conn, request.method, rx_buf).await?;
+        Ok(response)
     }
 }

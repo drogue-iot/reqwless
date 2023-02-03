@@ -1,3 +1,4 @@
+use embedded_io::asynch::Write;
 use embedded_io::blocking::ReadExactError;
 use embedded_io::ErrorKind;
 use embedded_io::{asynch::Read, Error as _, Io};
@@ -9,7 +10,11 @@ use crate::Error;
 /// Type representing a parsed HTTP response.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Response<'a> {
+pub struct Response<'buf, 'conn, C>
+where
+    C: Read + Write,
+{
+    conn: &'conn mut C,
     /// The method used to create the response.
     method: Method,
     /// The HTTP response status code.
@@ -18,14 +23,21 @@ pub struct Response<'a> {
     pub content_type: Option<ContentType>,
     /// The content length.
     pub content_length: Option<usize>,
-    header_buf: &'a mut [u8],
+    header_buf: &'buf mut [u8],
     header_len: usize,
     body_pos: usize,
 }
 
-impl<'a> Response<'a> {
+impl<'buf, 'conn, C> Response<'buf, 'conn, C>
+where
+    C: Read + Write,
+{
     // Read at least the headers from the connection.
-    pub async fn read<C: Read>(conn: &mut C, method: Method, header_buf: &'a mut [u8]) -> Result<Response<'a>, Error> {
+    pub async fn read(
+        conn: &'conn mut C,
+        method: Method,
+        header_buf: &'buf mut [u8],
+    ) -> Result<Response<'buf, 'conn, C>, Error> {
         let mut header_len = 0;
         let mut pos = 0;
         while pos < header_buf.len() {
@@ -45,7 +57,7 @@ impl<'a> Response<'a> {
             let mut response = httparse::Response::new(&mut headers);
             let parse_status = response.parse(&header_buf[..pos]).map_err(|_| Error::Codec)?;
             if parse_status.is_complete() {
-                header_len = parse_status.unwrap().into();
+                header_len = parse_status.unwrap();
                 break;
             } else {
             }
@@ -89,6 +101,7 @@ impl<'a> Response<'a> {
         }
 
         Ok(Response {
+            conn,
             method,
             status,
             content_type,
@@ -109,14 +122,14 @@ impl<'a> Response<'a> {
     }
 
     /// Get the response body
-    pub fn body<'conn, C: Read>(self, conn: &'conn mut C) -> ResponseBody<'a, 'conn, C> {
+    pub fn body(self) -> ResponseBody<'buf, 'conn, C> {
         if self.method == Method::HEAD {
             // Head requests does not have a body so we return an empty reader
             ResponseBody {
                 body_buf: self.header_buf,
                 body_pos: 0,
                 reader: BodyReader {
-                    conn,
+                    conn: self.conn,
                     remaining: Some(0),
                 },
             }
@@ -130,7 +143,7 @@ impl<'a> Response<'a> {
             // The header buffer is now the body buffer
             let body_buf = header_buf;
             let reader = BodyReader {
-                conn,
+                conn: self.conn,
                 remaining: self.content_length.map(|cl| cl - self.body_pos),
             };
 

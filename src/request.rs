@@ -9,6 +9,7 @@ use heapless::String;
 /// A read only HTTP request type
 pub struct Request<'a> {
     pub(crate) method: Method,
+    pub(crate) base_path: Option<&'a str>,
     pub(crate) path: &'a str,
     pub(crate) auth: Option<Auth<'a>>,
     pub(crate) host: Option<&'a str>,
@@ -21,6 +22,7 @@ impl<'a> Default for Request<'a> {
     fn default() -> Self {
         Self {
             method: Method::GET,
+            base_path: None,
             path: "/",
             auth: None,
             host: None,
@@ -43,6 +45,7 @@ pub enum Auth<'a> {
 
 impl<'a> Request<'a> {
     /// Create a new GET http request.
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(method: Method, path: &'a str) -> RequestBuilder<'a> {
         RequestBuilder {
             request: Request {
@@ -115,6 +118,12 @@ impl<'a> Request<'a> {
     {
         write_str(c, self.method.as_str()).await?;
         write_str(c, " ").await?;
+        if let Some(base_path) = self.base_path {
+            write_str(c, base_path.trim_end_matches('/')).await?;
+            if !self.path.starts_with('/') {
+                write_str(c, "/").await?;
+            }
+        }
         write_str(c, self.path).await?;
         write_str(c, " HTTP/1.1\r\n").await?;
 
