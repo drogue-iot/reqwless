@@ -10,7 +10,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use reqwless::response::Status;
-use reqwless::{headers::ContentType, request::Method};
+use reqwless::headers::ContentType;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Once;
 use tokio::net::TcpListener;
