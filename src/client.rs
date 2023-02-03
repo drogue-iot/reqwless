@@ -106,6 +106,8 @@ where
         }
     }
 
+    /// Create a connection to a server with the provided `endpoint_url`.
+    /// The path in the url is considered the base path for requests.
     pub async fn endpoint<'m>(
         &'m mut self,
         endpoint_url: &'m str,
@@ -124,9 +126,9 @@ where
     }
 }
 
-/// An HTTP endpoint
-/// 
-/// The connection is closed when drop'ed.
+/// A HTTP endpoint
+///
+/// The underlying connection is closed when drop'ed.
 pub struct HttpEndpoint<'a, C>
 where
     C: Read + Write,
@@ -145,36 +147,55 @@ where
     /// The returned request builder can be used to modify request parameters,
     /// before sending the request.
     pub fn request<'conn>(&'conn mut self, method: Method, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(&mut self.conn, Request::new(method, path).host(self.host))
+        HttpRequestBuilder::new(
+            &mut self.conn,
+            Request::new(method, path).base_path(self.base_path).host(self.host),
+        )
     }
 
     /// Create a new GET http request.
     pub fn get<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(&mut self.conn, Request::get(path).host(self.host))
+        HttpRequestBuilder::new(
+            &mut self.conn,
+            Request::get(path).base_path(self.base_path).host(self.host),
+        )
     }
 
     /// Create a new POST http request.
     pub fn post<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(&mut self.conn, Request::post(path).host(self.host))
+        HttpRequestBuilder::new(
+            &mut self.conn,
+            Request::post(path).base_path(self.base_path).host(self.host),
+        )
     }
 
     /// Create a new PUT http request.
     pub fn put<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(&mut self.conn, Request::put(path).host(self.host))
+        HttpRequestBuilder::new(
+            &mut self.conn,
+            Request::put(path).base_path(self.base_path).host(self.host),
+        )
     }
 
     /// Create a new DELETE http request.
     pub fn delete<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(&mut self.conn, Request::delete(path).host(self.host))
+        HttpRequestBuilder::new(
+            &mut self.conn,
+            Request::delete(path).base_path(self.base_path).host(self.host),
+        )
     }
 
     /// Create a new HEAD http request.
     pub fn head<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(&mut self.conn, Request::head(path).host(self.host))
+        HttpRequestBuilder::new(
+            &mut self.conn,
+            Request::head(path).base_path(self.base_path).host(self.host),
+        )
     }
 
     /// Send a request to an endpoint.
     ///
+    /// The base path of the endpoint is prepended to the request path.
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
@@ -204,8 +225,9 @@ where
     T: Read + Write,
     S: Read + Write,
 {
-    /// Send a request on an already established connection.
+    /// Send a request on an established connection.
     ///
+    /// The request is sent in its raw form without any base path from the endpoint.
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.

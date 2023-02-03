@@ -184,6 +184,12 @@ impl<'a> RequestBuilder<'a> {
         self
     }
 
+    /// Set the base path of the HTTP request.
+    pub(crate) fn base_path(mut self, base_path: &'a str) -> Self {
+        self.request.base_path = Some(base_path);
+        self
+    }
+
     /// Set the path of the HTTP request.
     pub fn path(mut self, path: &'a str) -> Self {
         self.request.path = path;
