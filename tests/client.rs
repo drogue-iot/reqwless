@@ -54,7 +54,7 @@ async fn test_request_response_notls() {
     let mut rx_buf = [0; 4096];
     let mut endpoint = client.endpoint(&url).await.unwrap();
     let response = endpoint
-        .request(Method::POST, "/")
+        .post("/")
         .body(b"PING")
         .content_type(ContentType::TextPlain)
         .send(&mut rx_buf)
@@ -117,7 +117,7 @@ async fn test_request_response_rustls() {
     let mut rx_buf = [0; 4096];
     let mut endpoint = client.endpoint(&url).await.unwrap();
     let response = endpoint
-        .request(Method::POST, "/")
+        .post("/")
         .body(b"PING")
         .content_type(ContentType::TextPlain)
         .send(&mut rx_buf)
@@ -146,11 +146,7 @@ async fn test_request_response_drogue_cloud_sandbox() {
     // Also, if requests on embedded platforms fail with Error::Dns, then try to
     // enable the "alloc" feature on embedded-tls to enable RSA ciphers.
     let mut endpoint = client.endpoint("https://http.sandbox.drogue.cloud/v1").await.unwrap();
-    let response = endpoint
-        .request(Method::POST, "/telemetry")
-        .send(&mut rx_buf)
-        .await
-        .unwrap();
+    let response = endpoint.post("/telemetry").send(&mut rx_buf).await.unwrap();
     assert_eq!(Status::Forbidden, response.status);
     let body = response.body().read_to_end().await.unwrap();
     assert!(!body.is_empty());

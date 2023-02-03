@@ -1,7 +1,7 @@
 use crate::headers::ContentType;
 use crate::request::*;
 use crate::response::*;
-use crate::{request, Error};
+use crate::Error;
 use embedded_io::asynch::{Read, Write};
 use embedded_io::Error as _;
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
@@ -124,16 +124,19 @@ where
     }
 }
 
-pub struct HttpEndpoint<'m, C>
+/// An HTTP endpoint
+/// 
+/// The connection is closed when drop'ed.
+pub struct HttpEndpoint<'a, C>
 where
     C: Read + Write,
 {
     pub conn: C,
-    pub host: &'m str,
-    pub base_path: &'m str,
+    pub host: &'a str,
+    pub base_path: &'a str,
 }
 
-impl<'conn, C> HttpEndpoint<'conn, C>
+impl<'a, C> HttpEndpoint<'a, C>
 where
     C: Read + Write,
 {
@@ -141,10 +144,33 @@ where
     ///
     /// The returned request builder can be used to modify request parameters,
     /// before sending the request.
-    pub fn request<'m>(&'m mut self, method: Method, path: &'m str) -> HttpRequestBuilder<C> {
-        let builder: request::RequestBuilder<'m> = Request::new(method, path).host(self.host);
+    pub fn request<'conn>(&'conn mut self, method: Method, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
+        HttpRequestBuilder::new(&mut self.conn, Request::new(method, path).host(self.host))
+    }
 
-        HttpRequestBuilder::new(&mut self.conn, builder)
+    /// Create a new GET http request.
+    pub fn get<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
+        HttpRequestBuilder::new(&mut self.conn, Request::get(path).host(self.host))
+    }
+
+    /// Create a new POST http request.
+    pub fn post<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
+        HttpRequestBuilder::new(&mut self.conn, Request::post(path).host(self.host))
+    }
+
+    /// Create a new PUT http request.
+    pub fn put<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
+        HttpRequestBuilder::new(&mut self.conn, Request::put(path).host(self.host))
+    }
+
+    /// Create a new DELETE http request.
+    pub fn delete<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
+        HttpRequestBuilder::new(&mut self.conn, Request::delete(path).host(self.host))
+    }
+
+    /// Create a new HEAD http request.
+    pub fn head<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
+        HttpRequestBuilder::new(&mut self.conn, Request::head(path).host(self.host))
     }
 
     /// Send a request to an endpoint.
@@ -152,9 +178,9 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf>(
+    pub async fn send<'buf, 'conn>(
         &'conn mut self,
-        mut request: Request<'conn>,
+        mut request: Request<'a>,
         rx_buf: &'buf mut [u8],
     ) -> Result<Response<'buf, 'conn, C>, Error> {
         request.base_path = Some(self.base_path);
@@ -235,8 +261,6 @@ where
 }
 
 /// An async HTTP connection for performing a HTTP request + response roundtrip.
-///
-/// The connection is closed when drop'ed.
 pub struct HttpRequestBuilder<'a, 'conn, T> {
     conn: &'conn mut T,
     request: RequestBuilder<'a>,
