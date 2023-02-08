@@ -9,6 +9,7 @@ use heapless::String;
 /// A read only HTTP request type
 pub struct Request<'a> {
     pub(crate) method: Method,
+    pub(crate) base_path: Option<&'a str>,
     pub(crate) path: &'a str,
     pub(crate) auth: Option<Auth<'a>>,
     pub(crate) host: Option<&'a str>,
@@ -21,6 +22,7 @@ impl<'a> Default for Request<'a> {
     fn default() -> Self {
         Self {
             method: Method::GET,
+            base_path: None,
             path: "/",
             auth: None,
             host: None,
@@ -32,8 +34,21 @@ impl<'a> Default for Request<'a> {
 }
 
 /// A HTTP request builder.
-pub struct RequestBuilder<'a> {
-    request: Request<'a>,
+pub trait RequestBuilder<'a> {
+    /// Set optional headers on the request.
+    fn headers(self, headers: &'a [(&'a str, &'a str)]) -> Self;
+    /// Set the path of the HTTP request.
+    fn path(self, path: &'a str) -> Self;
+    /// Set the data to send in the HTTP request body.
+    fn body(self, body: &'a [u8]) -> Self;
+    /// Set the host header.
+    fn host(self, host: &'a str) -> Self;
+    /// Set the content type header for the request.
+    fn content_type(self, content_type: ContentType) -> Self;
+    /// Set the basic authentication header for the request.
+    fn basic_auth(self, username: &'a str, password: &'a str) -> Self;
+    /// Return an immutable request.
+    fn build(self) -> Request<'a>;
 }
 
 /// Request authentication scheme.
@@ -42,70 +57,39 @@ pub enum Auth<'a> {
 }
 
 impl<'a> Request<'a> {
-    /// Create a new GET http request.
-    pub fn new(method: Method, path: &'a str) -> RequestBuilder<'a> {
-        RequestBuilder {
-            request: Request {
-                method,
-                path,
-                ..Default::default()
-            },
-        }
+    /// Create a new http request.
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(method: Method, path: &'a str) -> DefaultRequestBuilder<'a> {
+        DefaultRequestBuilder(Request {
+            method,
+            path,
+            ..Default::default()
+        })
     }
 
     /// Create a new GET http request.
-    pub fn get(path: &'a str) -> RequestBuilder<'a> {
-        RequestBuilder {
-            request: Request {
-                method: Method::GET,
-                path,
-                ..Default::default()
-            },
-        }
+    pub fn get(path: &'a str) -> DefaultRequestBuilder<'a> {
+        Self::new(Method::GET, path)
     }
 
     /// Create a new POST http request.
-    pub fn post(path: &'a str) -> RequestBuilder<'a> {
-        RequestBuilder {
-            request: Request {
-                method: Method::POST,
-                path,
-                ..Default::default()
-            },
-        }
+    pub fn post(path: &'a str) -> DefaultRequestBuilder<'a> {
+        Self::new(Method::POST, path)
     }
 
     /// Create a new PUT http request.
-    pub fn put(path: &'a str) -> RequestBuilder<'a> {
-        RequestBuilder {
-            request: Request {
-                method: Method::PUT,
-                path,
-                ..Default::default()
-            },
-        }
+    pub fn put(path: &'a str) -> DefaultRequestBuilder<'a> {
+        Self::new(Method::PUT, path)
     }
 
     /// Create a new DELETE http request.
-    pub fn delete(path: &'a str) -> RequestBuilder<'a> {
-        RequestBuilder {
-            request: Request {
-                method: Method::DELETE,
-                path,
-                ..Default::default()
-            },
-        }
+    pub fn delete(path: &'a str) -> DefaultRequestBuilder<'a> {
+        Self::new(Method::DELETE, path)
     }
 
     /// Create a new HEAD http request.
-    pub fn head(path: &'a str) -> RequestBuilder<'a> {
-        RequestBuilder {
-            request: Request {
-                method: Method::HEAD,
-                path,
-                ..Default::default()
-            },
-        }
+    pub fn head(path: &'a str) -> DefaultRequestBuilder<'a> {
+        Self::new(Method::HEAD, path)
     }
 
     /// Write request to the I/O stream
@@ -115,6 +99,12 @@ impl<'a> Request<'a> {
     {
         write_str(c, self.method.as_str()).await?;
         write_str(c, " ").await?;
+        if let Some(base_path) = self.base_path {
+            write_str(c, base_path.trim_end_matches('/')).await?;
+            if !self.path.starts_with('/') {
+                write_str(c, "/").await?;
+            }
+        }
         write_str(c, self.path).await?;
         write_str(c, " HTTP/1.1\r\n").await?;
 
@@ -168,46 +158,41 @@ impl<'a> Request<'a> {
     }
 }
 
-impl<'a> RequestBuilder<'a> {
-    /// Set optional headers on the request.
-    pub fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
-        self.request.extra_headers.replace(headers);
+pub struct DefaultRequestBuilder<'a>(Request<'a>);
+
+impl<'a> RequestBuilder<'a> for DefaultRequestBuilder<'a> {
+    fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
+        self.0.extra_headers.replace(headers);
         self
     }
 
-    /// Set the path of the HTTP request.
-    pub fn path(mut self, path: &'a str) -> Self {
-        self.request.path = path;
+    fn path(mut self, path: &'a str) -> Self {
+        self.0.path = path;
         self
     }
 
-    /// Set the data to send in the HTTP request body.
-    pub fn body(mut self, body: &'a [u8]) -> Self {
-        self.request.body.replace(body);
+    fn body(mut self, body: &'a [u8]) -> Self {
+        self.0.body.replace(body);
         self
     }
 
-    /// Set the host header.
-    pub fn host(mut self, host: &'a str) -> Self {
-        self.request.host.replace(host);
+    fn host(mut self, host: &'a str) -> Self {
+        self.0.host.replace(host);
         self
     }
 
-    /// Set the content type header for the request.
-    pub fn content_type(mut self, content_type: ContentType) -> Self {
-        self.request.content_type.replace(content_type);
+    fn content_type(mut self, content_type: ContentType) -> Self {
+        self.0.content_type.replace(content_type);
         self
     }
 
-    /// Set the basic authentication header for the request.
-    pub fn basic_auth(mut self, username: &'a str, password: &'a str) -> Self {
-        self.request.auth.replace(Auth::Basic { username, password });
+    fn basic_auth(mut self, username: &'a str, password: &'a str) -> Self {
+        self.0.auth.replace(Auth::Basic { username, password });
         self
     }
 
-    /// Return an immutable request.
-    pub fn build(self) -> Request<'a> {
-        self.request
+    fn build(self) -> Request<'a> {
+        self.0
     }
 }
 

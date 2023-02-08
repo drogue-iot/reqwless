@@ -9,8 +9,9 @@ use hyper::{Body, Server};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
+use reqwless::headers::ContentType;
+use reqwless::request::{Method, RequestBuilder};
 use reqwless::response::Status;
-use reqwless::{headers::ContentType, request::Method};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Once;
 use tokio::net::TcpListener;
@@ -52,16 +53,14 @@ async fn test_request_response_notls() {
     let url = format!("http://127.0.0.1:{}", addr.port());
     let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
     let mut rx_buf = [0; 4096];
-    let (response, mut conn) = client
+    let mut request = client
         .request(Method::POST, &url)
         .await
         .unwrap()
         .body(b"PING")
-        .content_type(ContentType::TextPlain)
-        .send(&mut rx_buf)
-        .await
-        .unwrap();
-    let body = response.body(&mut conn).read_to_end().await;
+        .content_type(ContentType::TextPlain);
+    let response = request.send(&mut rx_buf).await.unwrap();
+    let body = response.body().read_to_end().await;
     assert_eq!(body.unwrap(), b"PING");
 
     tx.send(()).unwrap();
@@ -69,7 +68,43 @@ async fn test_request_response_notls() {
 }
 
 #[tokio::test]
-async fn test_request_response_rustls() {
+async fn test_resource_notls() {
+    setup();
+    let addr = ([127, 0, 0, 1], 0).into();
+
+    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(echo)) });
+
+    let server = Server::bind(&addr).serve(service);
+    let addr = server.local_addr();
+
+    let (tx, rx) = oneshot::channel();
+    let t = tokio::spawn(async move {
+        tokio::select! {
+            _ = server => {}
+            _ = rx => {}
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{}", addr.port());
+    let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
+    let mut rx_buf = [0; 4096];
+    let mut resource = client.resource(&url).await.unwrap();
+    let response = resource
+        .post("/")
+        .body(b"PING")
+        .content_type(ContentType::TextPlain)
+        .send(&mut rx_buf)
+        .await
+        .unwrap();
+    let body = response.body().read_to_end().await;
+    assert_eq!(body.unwrap(), b"PING");
+
+    tx.send(()).unwrap();
+    t.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_resource_rustls() {
     setup();
     let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
 
@@ -116,16 +151,15 @@ async fn test_request_response_rustls() {
         TlsConfig::new(OsRng.next_u64(), &mut tls_buf, TlsVerify::None),
     );
     let mut rx_buf = [0; 4096];
-    let (response, mut conn) = client
-        .request(Method::POST, &url)
-        .await
-        .unwrap()
+    let mut resource = client.resource(&url).await.unwrap();
+    let response = resource
+        .post("/")
         .body(b"PING")
         .content_type(ContentType::TextPlain)
         .send(&mut rx_buf)
         .await
         .unwrap();
-    let body = response.body(&mut conn).read_to_end().await.unwrap();
+    let body = response.body().read_to_end().await.unwrap();
     assert_eq!(body, b"PING");
 
     tx.send(()).unwrap();
@@ -134,7 +168,7 @@ async fn test_request_response_rustls() {
 
 #[ignore]
 #[tokio::test]
-async fn test_request_response_drogue_cloud_sandbox() {
+async fn test_resource_drogue_cloud_sandbox() {
     setup();
     let mut tls_buf: [u8; 16384] = [0; 16384];
     let mut client = HttpClient::new_with_tls(
@@ -144,18 +178,13 @@ async fn test_request_response_drogue_cloud_sandbox() {
     );
     let mut rx_buf = [0; 4096];
 
-    // The endpoint must support TLS1.3
+    // The server must support TLS1.3
     // Also, if requests on embedded platforms fail with Error::Dns, then try to
     // enable the "alloc" feature on embedded-tls to enable RSA ciphers.
-    let (response, mut conn) = client
-        .request(Method::POST, "https://http.sandbox.drogue.cloud/v1/telemetry")
-        .await
-        .unwrap()
-        .send(&mut rx_buf)
-        .await
-        .unwrap();
+    let mut resource = client.resource("https://http.sandbox.drogue.cloud/v1").await.unwrap();
+    let response = resource.post("/telemetry").send(&mut rx_buf).await.unwrap();
     assert_eq!(Status::Forbidden, response.status);
-    let body = response.body(&mut conn).read_to_end().await.unwrap();
+    let body = response.body().read_to_end().await.unwrap();
     assert!(!body.is_empty());
 }
 
