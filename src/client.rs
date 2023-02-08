@@ -106,30 +106,30 @@ where
         }
     }
 
-    /// Create a connection to a server with the provided `endpoint_url`.
-    /// The path in the url is considered the base path for requests.
-    pub async fn endpoint<'m>(
+    /// Create a connection to a server with the provided `resource_url`.
+    /// The path in the url is considered the base path for subsequent requests.
+    pub async fn resource<'m>(
         &'m mut self,
-        endpoint_url: &'m str,
+        resource_url: &'m str,
     ) -> Result<
-        HttpEndpoint<'m, HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>>,
+        HttpResource<'m, HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>>,
         Error,
     > {
-        let endpoint_url = Url::parse(endpoint_url)?;
+        let resource_url = Url::parse(resource_url)?;
 
-        let conn = self.connect(&endpoint_url).await?;
-        Ok(HttpEndpoint {
+        let conn = self.connect(&resource_url).await?;
+        Ok(HttpResource {
             conn,
-            host: endpoint_url.host(),
-            base_path: endpoint_url.path(),
+            host: resource_url.host(),
+            base_path: resource_url.path(),
         })
     }
 }
 
-/// A HTTP endpoint
+/// A HTTP resource
 ///
 /// The underlying connection is closed when drop'ed.
-pub struct HttpEndpoint<'a, C>
+pub struct HttpResource<'a, C>
 where
     C: Read + Write,
 {
@@ -138,7 +138,7 @@ where
     pub base_path: &'a str,
 }
 
-impl<'a, C> HttpEndpoint<'a, C>
+impl<'a, C> HttpResource<'a, C>
 where
     C: Read + Write,
 {
@@ -193,9 +193,9 @@ where
         )
     }
 
-    /// Send a request to an endpoint.
+    /// Send a request to a resource.
     ///
-    /// The base path of the endpoint is prepended to the request path.
+    /// The base path of the resource is prepended to the request path.
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
@@ -227,7 +227,7 @@ where
 {
     /// Send a request on an established connection.
     ///
-    /// The request is sent in its raw form without any base path from the endpoint.
+    /// The request is sent in its raw form without any base path from the resource.
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.

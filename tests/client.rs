@@ -52,8 +52,8 @@ async fn test_request_response_notls() {
     let url = format!("http://127.0.0.1:{}", addr.port());
     let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
     let mut rx_buf = [0; 4096];
-    let mut endpoint = client.endpoint(&url).await.unwrap();
-    let response = endpoint
+    let mut resource = client.resource(&url).await.unwrap();
+    let response = resource
         .post("/")
         .body(b"PING")
         .content_type(ContentType::TextPlain)
@@ -115,8 +115,8 @@ async fn test_request_response_rustls() {
         TlsConfig::new(OsRng.next_u64(), &mut tls_buf, TlsVerify::None),
     );
     let mut rx_buf = [0; 4096];
-    let mut endpoint = client.endpoint(&url).await.unwrap();
-    let response = endpoint
+    let mut resource = client.resource(&url).await.unwrap();
+    let response = resource
         .post("/")
         .body(b"PING")
         .content_type(ContentType::TextPlain)
@@ -142,11 +142,11 @@ async fn test_request_response_drogue_cloud_sandbox() {
     );
     let mut rx_buf = [0; 4096];
 
-    // The endpoint must support TLS1.3
+    // The server must support TLS1.3
     // Also, if requests on embedded platforms fail with Error::Dns, then try to
     // enable the "alloc" feature on embedded-tls to enable RSA ciphers.
-    let mut endpoint = client.endpoint("https://http.sandbox.drogue.cloud/v1").await.unwrap();
-    let response = endpoint.post("/telemetry").send(&mut rx_buf).await.unwrap();
+    let mut resource = client.resource("https://http.sandbox.drogue.cloud/v1").await.unwrap();
+    let response = resource.post("/telemetry").send(&mut rx_buf).await.unwrap();
     assert_eq!(Status::Forbidden, response.status);
     let body = response.body().read_to_end().await.unwrap();
     assert!(!body.is_empty());
