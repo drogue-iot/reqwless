@@ -106,6 +106,23 @@ where
         }
     }
 
+    /// Create a single http request.
+    pub async fn request<'m>(
+        &'m mut self,
+        method: Method,
+        url: &'m str,
+    ) -> Result<
+        HttpRequestHandle<'m, HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>>,
+        Error,
+    > {
+        let url = Url::parse(url)?;
+        let conn = self.connect(&url).await?;
+        Ok(HttpRequestHandle {
+            conn,
+            request: Some(Request::new(method, url.path()).host(url.host())),
+        })
+    }
+
     /// Create a connection to a server with the provided `resource_url`.
     /// The path in the url is considered the base path for subsequent requests.
     pub async fn resource<'m>(
@@ -116,97 +133,12 @@ where
         Error,
     > {
         let resource_url = Url::parse(resource_url)?;
-
         let conn = self.connect(&resource_url).await?;
         Ok(HttpResource {
             conn,
             host: resource_url.host(),
             base_path: resource_url.path(),
         })
-    }
-}
-
-/// A HTTP resource
-///
-/// The underlying connection is closed when drop'ed.
-pub struct HttpResource<'a, C>
-where
-    C: Read + Write,
-{
-    pub conn: C,
-    pub host: &'a str,
-    pub base_path: &'a str,
-}
-
-impl<'a, C> HttpResource<'a, C>
-where
-    C: Read + Write,
-{
-    /// Build a http request.
-    ///
-    /// The returned request builder can be used to modify request parameters,
-    /// before sending the request.
-    pub fn request<'conn>(&'conn mut self, method: Method, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(
-            &mut self.conn,
-            Request::new(method, path).base_path(self.base_path).host(self.host),
-        )
-    }
-
-    /// Create a new GET http request.
-    pub fn get<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(
-            &mut self.conn,
-            Request::get(path).base_path(self.base_path).host(self.host),
-        )
-    }
-
-    /// Create a new POST http request.
-    pub fn post<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(
-            &mut self.conn,
-            Request::post(path).base_path(self.base_path).host(self.host),
-        )
-    }
-
-    /// Create a new PUT http request.
-    pub fn put<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(
-            &mut self.conn,
-            Request::put(path).base_path(self.base_path).host(self.host),
-        )
-    }
-
-    /// Create a new DELETE http request.
-    pub fn delete<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(
-            &mut self.conn,
-            Request::delete(path).base_path(self.base_path).host(self.host),
-        )
-    }
-
-    /// Create a new HEAD http request.
-    pub fn head<'conn>(&'conn mut self, path: &'a str) -> HttpRequestBuilder<'a, 'conn, C> {
-        HttpRequestBuilder::new(
-            &mut self.conn,
-            Request::head(path).base_path(self.base_path).host(self.host),
-        )
-    }
-
-    /// Send a request to a resource.
-    ///
-    /// The base path of the resource is prepended to the request path.
-    /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
-    ///
-    /// The response is returned.
-    pub async fn send<'buf, 'conn>(
-        &'conn mut self,
-        mut request: Request<'a>,
-        rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, C>, Error> {
-        request.base_path = Some(self.base_path);
-        request.write(&mut self.conn).await?;
-        Response::read(&mut self.conn, request.method, rx_buf).await
     }
 }
 
@@ -282,53 +214,202 @@ where
     }
 }
 
-/// An async HTTP connection for performing a HTTP request + response roundtrip.
-pub struct HttpRequestBuilder<'a, 'conn, T> {
-    conn: &'conn mut T,
-    request: RequestBuilder<'a>,
+/// A HTTP request handle
+/// 
+/// The underlying connection is closed when drop'ed.
+pub struct HttpRequestHandle<'a, C>
+where
+    C: Read + Write,
+{
+    pub conn: C,
+    request: Option<DefaultRequestBuilder<'a>>,
 }
 
-impl<'a, 'conn, T> HttpRequestBuilder<'a, 'conn, T>
+impl<C> HttpRequestHandle<'_, C>
 where
-    T: Write + Read,
+    C: Read + Write,
 {
-    fn new(conn: &'conn mut T, request: RequestBuilder<'a>) -> Self {
-        Self { conn, request }
+    /// Send the request.
+    ///
+    /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
+    ///
+    /// The response is returned.
+    pub async fn send<'buf, 'conn>(&'conn mut self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, 'conn, C>, Error> {
+        let request = self.request.take().ok_or(Error::AlreadySent)?.build();
+        request.write(&mut self.conn).await?;
+        Response::read(&mut self.conn, request.method, rx_buf).await
+    }
+}
+
+impl<'a, C> RequestBuilder<'a> for HttpRequestHandle<'a, C>
+where
+    C: Read + Write,
+{
+    fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
+        self.request = Some(self.request.unwrap().headers(headers));
+        self
     }
 
-    /// Set optional headers on the request.
-    pub fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
+    fn path(mut self, path: &'a str) -> Self {
+        self.request = Some(self.request.unwrap().path(path));
+        self
+    }
+
+    fn body(mut self, body: &'a [u8]) -> Self {
+        self.request = Some(self.request.unwrap().body(body));
+        self
+    }
+
+    fn host(mut self, host: &'a str) -> Self {
+        self.request = Some(self.request.unwrap().host(host));
+        self
+    }
+
+    fn content_type(mut self, content_type: ContentType) -> Self {
+        self.request = Some(self.request.unwrap().content_type(content_type));
+        self
+    }
+
+    fn basic_auth(mut self, username: &'a str, password: &'a str) -> Self {
+        self.request = Some(self.request.unwrap().basic_auth(username, password));
+        self
+    }
+
+    fn build(self) -> Request<'a> {
+        self.request.unwrap().build()
+    }
+}
+
+
+/// A HTTP resource describing a scoped endpoint
+///
+/// The underlying connection is closed when drop'ed.
+pub struct HttpResource<'a, C>
+where
+    C: Read + Write,
+{
+    pub conn: C,
+    pub host: &'a str,
+    pub base_path: &'a str,
+}
+
+impl<'a, C> HttpResource<'a, C>
+where
+    C: Read + Write,
+{
+    pub fn request<'conn>(&'conn mut self, method: Method, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+        HttpResourceRequestBuilder {
+            conn: &mut self.conn,
+            request: Request::new(method, path).host(self.host),
+            base_path: self.base_path,
+        }
+    }
+
+    /// Create a new scoped GET http request.
+    pub fn get<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+        self.request(Method::GET, path)
+    }
+
+    /// Create a new scoped POST http request.
+    pub fn post<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+        self.request(Method::POST, path)
+    }
+
+    /// Create a new scoped PUT http request.
+    pub fn put<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+        self.request(Method::PUT, path)
+    }
+
+    /// Create a new scoped DELETE http request.
+    pub fn delete<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+        self.request(Method::DELETE, path)
+    }
+
+    /// Create a new scoped HEAD http request.
+    pub fn head<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+        self.request(Method::HEAD, path)
+    }
+
+    /// Send a request to a resource.
+    ///
+    /// The base path of the resource is prepended to the request path.
+    /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
+    ///
+    /// The response is returned.
+    pub async fn send<'buf, 'conn>(
+        &'conn mut self,
+        mut request: Request<'a>,
+        rx_buf: &'buf mut [u8],
+    ) -> Result<Response<'buf, 'conn, C>, Error> {
+        request.base_path = Some(self.base_path);
+        request.write(&mut self.conn).await?;
+        Response::read(&mut self.conn, request.method, rx_buf).await
+    }
+}
+
+pub struct HttpResourceRequestBuilder<'a, 'conn, C>
+where
+    C: Read + Write,
+{
+    conn: &'conn mut C,
+    request: DefaultRequestBuilder<'a>,
+    base_path: &'a str,
+}
+
+impl<'a, 'conn, C> HttpResourceRequestBuilder<'a, 'conn, C>
+where
+    C: Read + Write,
+{
+    /// Send the request.
+    ///
+    /// The base path of the resource is prepended to the request path.
+    /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
+    ///
+    /// The response is returned.
+    pub async fn send<'buf>(self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, 'conn, C>, Error> {
+        let conn = self.conn;
+        let mut request = self.request.build();
+        request.base_path = Some(self.base_path);
+        request.write(conn).await?;
+        Response::read(conn, request.method, rx_buf).await
+    }
+}
+
+impl<'a, 'conn, C> RequestBuilder<'a> for HttpResourceRequestBuilder<'a, 'conn, C>
+where
+    C: Read + Write,
+{
+    fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
         self.request = self.request.headers(headers);
         self
     }
 
-    /// Set the data to send in the HTTP request body.
-    pub fn body(mut self, body: &'a [u8]) -> Self {
+    fn path(mut self, path: &'a str) -> Self {
+        self.request = self.request.path(path);
+        self
+    }
+
+    fn body(mut self, body: &'a [u8]) -> Self {
         self.request = self.request.body(body);
         self
     }
 
-    /// Set the content type header for the request.
-    pub fn content_type(mut self, content_type: ContentType) -> Self {
+    fn host(mut self, host: &'a str) -> Self {
+        self.request = self.request.host(host);
+        self
+    }
+
+    fn content_type(mut self, content_type: ContentType) -> Self {
         self.request = self.request.content_type(content_type);
         self
     }
 
-    /// Set the basic authentication header for the request.
-    pub fn basic_auth(mut self, username: &'a str, password: &'a str) -> Self {
+    fn basic_auth(mut self, username: &'a str, password: &'a str) -> Self {
         self.request = self.request.basic_auth(username, password);
         self
     }
 
-    /// Perform a HTTP request.
-    ///
-    /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
-    ///
-    /// The response together with the established connection is returned.
-    pub async fn send<'buf>(mut self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, 'conn, T>, Error> {
-        let request = self.request.build();
-        request.write(&mut self.conn).await?;
-        let response = Response::read(self.conn, request.method, rx_buf).await?;
-        Ok(response)
+    fn build(self) -> Request<'a> {
+        self.request.build()
     }
 }

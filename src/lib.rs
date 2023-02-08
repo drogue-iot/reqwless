@@ -28,6 +28,8 @@ pub enum Error {
     Tls(embedded_tls::TlsError),
     /// The provided buffer is too small
     BufferTooSmall,
+    /// The request is already sent
+    AlreadySent,
 }
 
 impl embedded_io::Error for Error {
