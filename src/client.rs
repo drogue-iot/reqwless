@@ -215,7 +215,7 @@ where
 }
 
 /// A HTTP request handle
-/// 
+///
 /// The underlying connection is closed when drop'ed.
 pub struct HttpRequestHandle<'a, C>
 where
@@ -279,7 +279,6 @@ where
         self.request.unwrap().build()
     }
 }
-
 
 /// A HTTP resource describing a scoped endpoint
 ///

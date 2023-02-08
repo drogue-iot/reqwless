@@ -1,4 +1,3 @@
-use embedded_io::asynch::Write;
 use embedded_io::blocking::ReadExactError;
 use embedded_io::ErrorKind;
 use embedded_io::{asynch::Read, Error as _, Io};
@@ -12,7 +11,7 @@ use crate::Error;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Response<'buf, 'conn, C>
 where
-    C: Read + Write,
+    C: Read,
 {
     conn: &'conn mut C,
     /// The method used to create the response.
@@ -30,7 +29,7 @@ where
 
 impl<'buf, 'conn, C> Response<'buf, 'conn, C>
 where
-    C: Read + Write,
+    C: Read,
 {
     // Read at least the headers from the connection.
     pub async fn read(
