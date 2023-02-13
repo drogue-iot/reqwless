@@ -36,6 +36,29 @@ NOTE: TLS verification is not supported in no_std environments for `embedded-tls
 
 If you are missing a feature or would like an improvement, please raise an issue or a PR.
 
+## TLS 1.3 and Supported Cipher Suites
+`reqwless` uses `embedded-tls` to establish secure TLS connections for `https://..` urls.
+`embedded-tls` only supports TLS 1.3, so to establish a connection the server must have this ssl protocol enabled.
+
+An addition to the tls version requirement, there is also a negotiation of supported algorithms during the establishing phase of the secure communication between the client and server.
+By default, the set of supported algorithms in `embedded-tls` is limited to algorithms that can run entirely on the stack.
+To test whether the server supports this limited set of algorithm, try and test the server using the following `openssl` command:
+
+```bash
+openssl s_client -tls1_3 -ciphersuites TLS_AES_128_GCM_SHA256 -sigalgs "ECDSA+SHA256:ECDSA+SHA384:ed25519" -connect hostname:443
+```
+
+If the server successfully replies to the client hello then the enabled tls version and algorithms on the server should be ok.
+If the command fails, then try and run without the limited set of signature algorithms
+
+```bash
+openssl s_client -tls1_3 -ciphersuites TLS_AES_128_GCM_SHA256 -connect hostname:443
+```
+
+If this works, then there are two options. Either enable the signature algorithms on the server by changing the private key from RSA to ECDSA or ed25519, or enable RSA keys on the client by specifying the `alloc` feature.
+This enables `alloc` on `embedded-tls` which in turn enables RSA signature algorithms.
+
+
 # Minimum supported Rust version (MSRV)
 
 `reqwless` requires a feature from `nightly` to compile `embedded-io` with async support:

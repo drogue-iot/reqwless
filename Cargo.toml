@@ -40,6 +40,7 @@ log = "0.4"
 rand = "0.8"
 
 [features]
+alloc = ["embedded-tls/alloc"]
 defmt = [
     "dep:defmt",
     "embedded-io/defmt",
