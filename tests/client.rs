@@ -218,7 +218,7 @@ struct LoopbackDns;
 impl embedded_nal_async::Dns for LoopbackDns {
     type Error = TestError;
 
-    async fn get_host_by_name(&self, _: &str, _: AddrType) -> Result<IpAddr, Self::Error> {
+    async fn get_host_by_name<'m>(&self, _: &str, _: AddrType) -> Result<IpAddr, Self::Error> {
         Ok(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
     }
 
@@ -232,7 +232,7 @@ struct StdDns;
 impl embedded_nal_async::Dns for StdDns {
     type Error = std::io::Error;
 
-    async fn get_host_by_name(&self, host: &str, addr_type: AddrType) -> Result<IpAddr, Self::Error> {
+    async fn get_host_by_name<'m>(&self, host: &str, addr_type: AddrType) -> Result<IpAddr, Self::Error> {
         for address in (host, 0).to_socket_addrs()? {
             match address {
                 SocketAddr::V4(a) if addr_type == AddrType::IPv4 || addr_type == AddrType::Either => {
