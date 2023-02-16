@@ -127,6 +127,7 @@ where
             ResponseBody {
                 body_buf: self.header_buf,
                 body_pos: 0,
+                body_offset: 0,
                 reader: BodyReader {
                     conn: self.conn,
                     remaining: Some(0),
@@ -149,6 +150,7 @@ where
             ResponseBody {
                 body_buf,
                 body_pos: self.body_pos,
+                body_offset: 0,
                 reader,
             }
         }
@@ -177,10 +179,31 @@ impl<'a> Iterator for HeaderIterator<'a> {
 pub struct ResponseBody<'buf, 'conn, C: Read> {
     /// The buffer initially provided to read the header.
     pub body_buf: &'buf mut [u8],
-    /// The number bytes raed from the body and available in `body_buf`.
+    /// The number bytes read from the body and available in `body_buf`.
     pub body_pos: usize,
+    /// The number of body bytes consumed from `body_buf`.
+    body_offset: usize,
     /// The reader to be used for reading the remaining body.
     pub reader: BodyReader<'conn, C>,
+}
+
+impl<C: Read> Io for ResponseBody<'_, '_, C> {
+    type Error = Error;
+}
+
+impl<C: Read> Read for ResponseBody<'_, '_, C> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        if self.body_offset < self.body_pos {
+            // Return bytes read into body_buf while reading header
+            let available = self.body_pos - self.body_offset;
+            let len = usize::min(available, buf.len());
+            buf[..len].copy_from_slice(&self.body_buf[self.body_offset..self.body_offset + len]);
+            self.body_offset += len;
+            return Ok(len);
+        }
+
+        self.reader.read(buf).await
+    }
 }
 
 impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
