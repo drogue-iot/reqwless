@@ -60,7 +60,7 @@ async fn test_request_response_notls() {
         .body(b"PING")
         .content_type(ContentType::TextPlain);
     let response = request.send(&mut rx_buf).await.unwrap();
-    let body = response.body().read_to_end().await;
+    let body = response.body().unwrap().read_to_end().await;
     assert_eq!(body.unwrap(), b"PING");
 
     tx.send(()).unwrap();
@@ -96,7 +96,7 @@ async fn test_resource_notls() {
         .send(&mut rx_buf)
         .await
         .unwrap();
-    let body = response.body().read_to_end().await;
+    let body = response.body().unwrap().read_to_end().await;
     assert_eq!(body.unwrap(), b"PING");
 
     tx.send(()).unwrap();
@@ -159,7 +159,7 @@ async fn test_resource_rustls() {
         .send(&mut rx_buf)
         .await
         .unwrap();
-    let body = response.body().read_to_end().await.unwrap();
+    let body = response.body().unwrap().read_to_end().await.unwrap();
     assert_eq!(body, b"PING");
 
     tx.send(()).unwrap();
@@ -184,7 +184,7 @@ async fn test_resource_drogue_cloud_sandbox() {
     let mut resource = client.resource("https://http.sandbox.drogue.cloud/v1").await.unwrap();
     let response = resource.post("/telemetry").send(&mut rx_buf).await.unwrap();
     assert_eq!(Status::Forbidden, response.status);
-    let body = response.body().read_to_end().await.unwrap();
+    let body = response.body().unwrap().read_to_end().await.unwrap();
     assert!(!body.is_empty());
 }
 
@@ -218,7 +218,7 @@ struct LoopbackDns;
 impl embedded_nal_async::Dns for LoopbackDns {
     type Error = TestError;
 
-    async fn get_host_by_name<'m>(&self, _: &str, _: AddrType) -> Result<IpAddr, Self::Error> {
+    async fn get_host_by_name(&self, _: &str, _: AddrType) -> Result<IpAddr, Self::Error> {
         Ok(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
     }
 
@@ -232,7 +232,7 @@ struct StdDns;
 impl embedded_nal_async::Dns for StdDns {
     type Error = std::io::Error;
 
-    async fn get_host_by_name<'m>(&self, host: &str, addr_type: AddrType) -> Result<IpAddr, Self::Error> {
+    async fn get_host_by_name(&self, host: &str, addr_type: AddrType) -> Result<IpAddr, Self::Error> {
         for address in (host, 0).to_socket_addrs()? {
             match address {
                 SocketAddr::V4(a) if addr_type == AddrType::IPv4 || addr_type == AddrType::Either => {

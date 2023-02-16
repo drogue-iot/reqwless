@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![feature(impl_trait_projections)]
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]

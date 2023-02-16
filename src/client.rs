@@ -181,7 +181,7 @@ where
     type Error = embedded_io::ErrorKind;
 }
 
-impl<T, S> embedded_io::asynch::Read for HttpConnection<T, S>
+impl<T, S> Read for HttpConnection<T, S>
 where
     T: Read + Write,
     S: Read + Write,
@@ -194,7 +194,7 @@ where
     }
 }
 
-impl<T, S> embedded_io::asynch::Write for HttpConnection<T, S>
+impl<T, S> Write for HttpConnection<T, S>
 where
     T: Read + Write,
     S: Read + Write,
