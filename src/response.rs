@@ -132,7 +132,6 @@ where
             // Head requests does not have a body so we return an empty reader
             Ok(ResponseBody {
                 body_buf: self.header_buf,
-                body_offset: 0,
                 body_pos: 0,
                 reader: BodyReader::FixedLength(FixedLengthBodyReader {
                     conn: self.conn,
