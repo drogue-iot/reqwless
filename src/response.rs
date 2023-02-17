@@ -361,7 +361,7 @@ impl<C: Read> Read for ChunkedBodyReader<C> {
         if self.empty_chunk_received {
             return Ok(0);
         }
-        
+
         if self.chunk_remaining == 0 {
             // The current chunk is currently empty, advance into a new chunk...
 

@@ -143,12 +143,13 @@ async fn test_resource_rustls() {
         }
     });
 
-    let mut tls_buf: [u8; 16384] = [0; 16384];
+    let mut tls_read_buf: [u8; 16384] = [0; 16384];
+    let mut tls_write_buf: [u8; 16384] = [0; 16384];
     let url = format!("https://localhost:{}", addr.port());
     let mut client = HttpClient::new_with_tls(
         &TCP,
         &LOOPBACK_DNS,
-        TlsConfig::new(OsRng.next_u64(), &mut tls_buf, TlsVerify::None),
+        TlsConfig::new(OsRng.next_u64(), &mut tls_read_buf, &mut tls_write_buf, TlsVerify::None),
     );
     let mut rx_buf = [0; 4096];
     let mut resource = client.resource(&url).await.unwrap();
@@ -170,11 +171,12 @@ async fn test_resource_rustls() {
 #[tokio::test]
 async fn test_resource_drogue_cloud_sandbox() {
     setup();
-    let mut tls_buf: [u8; 16384] = [0; 16384];
+    let mut tls_read_buf: [u8; 16384] = [0; 16384];
+    let mut tls_write_buf: [u8; 16384] = [0; 16384];
     let mut client = HttpClient::new_with_tls(
         &TCP,
         &PUBLIC_DNS,
-        TlsConfig::new(OsRng.next_u64(), &mut tls_buf, TlsVerify::None),
+        TlsConfig::new(OsRng.next_u64(), &mut tls_read_buf, &mut tls_write_buf, TlsVerify::None),
     );
     let mut rx_buf = [0; 4096];
 
