@@ -444,17 +444,61 @@ impl<C: Read> Read for ChunkedBodyReader<C> {
 }
 
 /// HTTP status types
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Status {
     Ok = 200,
     Created = 201,
     Accepted = 202,
+    NoContent = 204,
+    PartialContent = 206,
+    MovedPermanently = 301,
+    Found = 302,
+    SeeOther = 303,
+    NotModified = 304,
+    TemporaryRedirect = 307,
+    PermanentRedirect = 308,
     BadRequest = 400,
     Unauthorized = 401,
     Forbidden = 403,
     NotFound = 404,
+    MethodNotAllowed = 405,
+    Conflict = 409,
+    UnsupportedMediaType = 415,
+    RangeNotSatisfiable = 416,
+    TooManyRequests = 429,
+    InternalServerError = 500,
+    BadGateway = 502,
+    ServiceUnavailable = 503,
+    GatewayTimeout = 504,
     Unknown = 0,
+}
+
+impl Status {
+    pub fn is_informational(&self) -> bool {
+        let status = *self as u16;
+        (100..=199).contains(&status)
+    }
+
+    pub fn is_successful(&self) -> bool {
+        let status = *self as u16;
+        (200..=299).contains(&status)
+    }
+
+    pub fn is_redirection(&self) -> bool {
+        let status = *self as u16;
+        (300..=399).contains(&status)
+    }
+
+    pub fn is_client_error(&self) -> bool {
+        let status = *self as u16;
+        (400..=499).contains(&status)
+    }
+
+    pub fn is_server_error(&self) -> bool {
+        let status = *self as u16;
+        (500..=599).contains(&status)
+    }
 }
 
 impl From<u16> for Status {
@@ -463,10 +507,27 @@ impl From<u16> for Status {
             200 => Status::Ok,
             201 => Status::Created,
             202 => Status::Accepted,
+            204 => Status::NoContent,
+            206 => Status::PartialContent,
+            301 => Status::MovedPermanently,
+            302 => Status::Found,
+            303 => Status::SeeOther,
+            304 => Status::NotModified,
+            307 => Status::TemporaryRedirect,
+            308 => Status::PermanentRedirect,
             400 => Status::BadRequest,
             401 => Status::Unauthorized,
             403 => Status::Forbidden,
             404 => Status::NotFound,
+            405 => Status::MethodNotAllowed,
+            409 => Status::Conflict,
+            415 => Status::UnsupportedMediaType,
+            416 => Status::RangeNotSatisfiable,
+            429 => Status::TooManyRequests,
+            500 => Status::InternalServerError,
+            502 => Status::BadGateway,
+            503 => Status::ServiceUnavailable,
+            504 => Status::GatewayTimeout,
             n => {
                 warn!("Unknown status code: {:?}", n);
                 Status::Unknown
