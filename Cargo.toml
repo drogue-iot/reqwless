@@ -8,10 +8,6 @@ documentation = "https://docs.rs/reqwless"
 readme = "README.md"
 homepage = "https://drogue.io"
 repository = "https://github.com/drogue-iot/reqwless"
-authors = [
-    "Ulf Lilleengen <lulf@redhat.com>",
-    "Rasmus Melchior Jacobsen <rmja@laesoe.org>",
-]
 license = "Apache-2.0"
 keywords = ["embedded", "async", "http", "no_std"]
 exclude = [".github"]
