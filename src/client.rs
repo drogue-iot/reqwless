@@ -27,7 +27,8 @@ where
 /// Type for TLS configuration of HTTP client.
 pub struct TlsConfig<'a> {
     seed: u64,
-    buffer: &'a mut [u8],
+    read_buffer: &'a mut [u8],
+    write_buffer: &'a mut [u8],
     verify: TlsVerify<'a>,
 }
 
@@ -40,8 +41,16 @@ pub enum TlsVerify<'a> {
 }
 
 impl<'a> TlsConfig<'a> {
-    pub fn new(seed: u64, buffer: &'a mut [u8], verify: TlsVerify<'a>) -> Self {
-        Self { seed, buffer, verify }
+    /// Create a new TLS configuration
+    /// The buffers are forwarded to [`embedded_tls::asynch::TlsConnection::new()`]. Consult its documentation to see
+    /// the details about the required buffer sizes.
+    pub fn new(seed: u64, read_buffer: &'a mut [u8], write_buffer: &'a mut [u8], verify: TlsVerify<'a>) -> Self {
+        Self {
+            seed,
+            read_buffer,
+            write_buffer,
+            verify,
+        }
     }
 }
 
@@ -93,7 +102,7 @@ where
                     config = config.with_psk(psk, &[identity]);
                 }
                 let mut conn: TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256> =
-                    TlsConnection::new(conn, tls.buffer);
+                    TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
                 conn.open::<_, embedded_tls::NoVerify>(TlsContext::new(&config, &mut rng))
                     .await
                     .map_err(Error::Tls)?;
