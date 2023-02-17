@@ -113,10 +113,14 @@ impl<'a> Request<'a> {
         if let Some(auth) = &self.auth {
             match auth {
                 Auth::Basic { username, password } => {
+                    use base64::engine::{general_purpose, Engine as _};
+
                     let mut combined: String<128> = String::new();
                     write!(combined, "{}:{}", username, password).map_err(|_| Error::Codec)?;
                     let mut authz = [0; 256];
-                    let authz_len = base64::encode_config_slice(combined.as_bytes(), base64::STANDARD, &mut authz);
+                    let authz_len = general_purpose::STANDARD
+                        .encode_slice(combined.as_bytes(), &mut authz)
+                        .map_err(|_| Error::Codec)?;
                     write_str(c, "Authorization: Basic ").await?;
                     write_str(c, unsafe { core::str::from_utf8_unchecked(&authz[..authz_len]) }).await?;
                     write_str(c, "\r\n").await?;
@@ -240,4 +244,25 @@ async fn write_header<C: Write>(c: &mut C, key: &str, value: &str) -> Result<(),
     write_str(c, value).await?;
     write_str(c, "\r\n").await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn basic_auth() {
+        let mut buffer = Vec::new();
+        Request::new(Method::GET, "/")
+            .basic_auth("username", "password")
+            .build()
+            .write(&mut buffer)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            b"GET / HTTP/1.1\r\nAuthorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=\r\n\r\n",
+            buffer.as_slice()
+        );
+    }
 }
