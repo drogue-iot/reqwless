@@ -29,3 +29,38 @@ impl ContentType {
         }
     }
 }
+
+/// Transfer encoding
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TransferEncoding {
+    Chunked,
+    Compress,
+    Deflate,
+    Gzip,
+}
+
+impl<'a> TryFrom<&'a [u8]> for TransferEncoding {
+    type Error = ();
+
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        Ok(match value {
+            b"chunked" => TransferEncoding::Chunked,
+            b"compress" => TransferEncoding::Compress,
+            b"deflate" => TransferEncoding::Deflate,
+            b"gzip" => TransferEncoding::Gzip,
+            _ => return Err(()),
+        })
+    }
+}
+
+impl TransferEncoding {
+    pub fn as_str(&self) -> &str {
+        match self {
+            TransferEncoding::Deflate => "deflate",
+            TransferEncoding::Chunked => "chunked",
+            TransferEncoding::Compress => "compress",
+            TransferEncoding::Gzip => "gzip",
+        }
+    }
+}
