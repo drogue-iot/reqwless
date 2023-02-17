@@ -185,10 +185,10 @@ pub struct ResponseBody<'buf, 'conn, C: Read> {
 
 impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
     /// Read the entire body
-    pub async fn read_to_end(mut self) -> Result<&'buf [u8], Error> {
+    pub async fn read_to_end(mut self) -> Result<&'buf mut [u8], Error> {
         // Read into the buffer after the portion that was already received when parsing the header
         let len = self.reader.read_to_end(&mut self.body_buf[self.body_pos..]).await?;
-        Ok(&self.body_buf[..self.body_pos + len])
+        Ok(&mut self.body_buf[..self.body_pos + len])
     }
 }
 
