@@ -219,16 +219,11 @@ where
 }
 
 impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
-    /// The raw body bytes over-read while reading the header
-    pub fn raw_body_read(&self) -> &[u8] {
-        &self.body_buf[..self.raw_body_read]
-    }
-
     /// Read the reminder of the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
     ///
-    /// This is only valid if Content-Length is specified in the response,
-    /// as any other body encoding would require that the body bytes over-read would be availble for the reader.
+    /// This is only valid if Content-Length is specified in the response, as any other body encoding would require
+    /// that the body bytes over-read while parsing the http response header would be availble for the reader.
     pub async fn read_raw_to_end(self) -> Result<&'buf [u8], Error> {
         // We can only read responses with Content-Length header to end using the body_buf buffer,
         // as any other response would require the body reader to know the entire body.
