@@ -219,12 +219,13 @@ where
 }
 
 impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
-    /// Read the reminder of the entire body into the buffer originally provided [`Response::read()`].
+    /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
     ///
     /// This is only valid if Content-Length is specified in the response, as any other body encoding would require
-    /// that the body bytes over-read while parsing the http response header would be availble for the reader.
-    pub async fn read_raw_to_end(self) -> Result<&'buf [u8], Error> {
+    /// that the body bytes over-read while parsing the http response header would be availble for the body reader.
+    /// In those cases, use [`BodyReader::read_to_end()`] instead from the reader returned by [`ResponseBody::reader()`].
+    pub async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
         // We can only read responses with Content-Length header to end using the body_buf buffer,
         // as any other response would require the body reader to know the entire body.
         if let ReaderHint::FixedLength(content_length) = self.reader_hint {
@@ -237,7 +238,7 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
                     ReadExactError::Other(e) => Error::Network(e.kind()),
                 })?;
 
-            Ok(&self.body_buf[..content_length])
+            Ok(&mut self.body_buf[..content_length])
         } else {
             Err(Error::Codec)
         }
@@ -486,7 +487,7 @@ mod tests {
             .await
             .unwrap();
 
-        let body = response.body().unwrap().read_raw_to_end().await.unwrap();
+        let body = response.body().unwrap().read_to_end().await.unwrap();
 
         assert_eq!(b"HELLO WORLD", body);
     }

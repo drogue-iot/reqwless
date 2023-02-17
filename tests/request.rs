@@ -45,7 +45,7 @@ async fn test_request_response() {
     request.write(&mut stream).await.unwrap();
     let mut rx_buf = [0; 4096];
     let response = Response::read(&mut stream, Method::POST, &mut rx_buf).await.unwrap();
-    let body = response.body().unwrap().read_raw_to_end().await;
+    let body = response.body().unwrap().read_to_end().await;
 
     assert_eq!(body.unwrap(), b"PING");
 
