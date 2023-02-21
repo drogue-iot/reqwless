@@ -2,23 +2,27 @@ use crate::headers::ContentType;
 /// Low level API for encoding requests and decoding responses.
 use crate::Error;
 use core::fmt::Write as _;
+use core::mem::size_of;
 use embedded_io::asynch::Write;
-use embedded_io::Error as _;
+use embedded_io::{Error as _, Io};
 use heapless::String;
 
 /// A read only HTTP request type
-pub struct Request<'a> {
+pub struct Request<'a, B>
+where
+    B: RequestBody,
+{
     pub(crate) method: Method,
     pub(crate) base_path: Option<&'a str>,
     pub(crate) path: &'a str,
     pub(crate) auth: Option<Auth<'a>>,
     pub(crate) host: Option<&'a str>,
-    pub(crate) body: Option<&'a [u8]>,
+    pub(crate) body: Option<B>,
     pub(crate) content_type: Option<ContentType>,
     pub(crate) extra_headers: Option<&'a [(&'a str, &'a str)]>,
 }
 
-impl<'a> Default for Request<'a> {
+impl Default for Request<'_, ()> {
     fn default() -> Self {
         Self {
             method: Method::GET,
@@ -34,13 +38,18 @@ impl<'a> Default for Request<'a> {
 }
 
 /// A HTTP request builder.
-pub trait RequestBuilder<'a> {
+pub trait RequestBuilder<'a, B>
+where
+    B: RequestBody,
+{
+    type WithBody<T: RequestBody>: RequestBuilder<'a, T>;
+
     /// Set optional headers on the request.
     fn headers(self, headers: &'a [(&'a str, &'a str)]) -> Self;
     /// Set the path of the HTTP request.
     fn path(self, path: &'a str) -> Self;
     /// Set the data to send in the HTTP request body.
-    fn body(self, body: &'a [u8]) -> Self;
+    fn body<T: RequestBody>(self, body: T) -> Self::WithBody<T>;
     /// Set the host header.
     fn host(self, host: &'a str) -> Self;
     /// Set the content type header for the request.
@@ -48,7 +57,7 @@ pub trait RequestBuilder<'a> {
     /// Set the basic authentication header for the request.
     fn basic_auth(self, username: &'a str, password: &'a str) -> Self;
     /// Return an immutable request.
-    fn build(self) -> Request<'a>;
+    fn build(self) -> Request<'a, B>;
 }
 
 /// Request authentication scheme.
@@ -56,10 +65,10 @@ pub enum Auth<'a> {
     Basic { username: &'a str, password: &'a str },
 }
 
-impl<'a> Request<'a> {
+impl<'a> Request<'a, ()> {
     /// Create a new http request.
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(method: Method, path: &'a str) -> DefaultRequestBuilder<'a> {
+    pub fn new(method: Method, path: &'a str) -> DefaultRequestBuilder<'a, ()> {
         DefaultRequestBuilder(Request {
             method,
             path,
@@ -68,30 +77,35 @@ impl<'a> Request<'a> {
     }
 
     /// Create a new GET http request.
-    pub fn get(path: &'a str) -> DefaultRequestBuilder<'a> {
+    pub fn get(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
         Self::new(Method::GET, path)
     }
 
     /// Create a new POST http request.
-    pub fn post(path: &'a str) -> DefaultRequestBuilder<'a> {
+    pub fn post(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
         Self::new(Method::POST, path)
     }
 
     /// Create a new PUT http request.
-    pub fn put(path: &'a str) -> DefaultRequestBuilder<'a> {
+    pub fn put(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
         Self::new(Method::PUT, path)
     }
 
     /// Create a new DELETE http request.
-    pub fn delete(path: &'a str) -> DefaultRequestBuilder<'a> {
+    pub fn delete(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
         Self::new(Method::DELETE, path)
     }
 
     /// Create a new HEAD http request.
-    pub fn head(path: &'a str) -> DefaultRequestBuilder<'a> {
+    pub fn head(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
         Self::new(Method::HEAD, path)
     }
+}
 
+impl<'a, B> Request<'a, B>
+where
+    B: RequestBody,
+{
     /// Write request to the I/O stream
     pub async fn write<C>(&self, c: &mut C) -> Result<(), Error>
     where
@@ -107,8 +121,6 @@ impl<'a> Request<'a> {
         }
         write_str(c, self.path).await?;
         write_str(c, " HTTP/1.1\r\n").await?;
-
-        //        write_header(c, "Host", self.host).await?;
 
         if let Some(auth) = &self.auth {
             match auth {
@@ -133,10 +145,14 @@ impl<'a> Request<'a> {
         if let Some(content_type) = &self.content_type {
             write_header(c, "Content-Type", content_type.as_str()).await?;
         }
-        if let Some(body) = self.body {
-            let mut s: String<32> = String::new();
-            write!(s, "{}", body.len()).map_err(|_| Error::Codec)?;
-            write_header(c, "Content-Length", s.as_str()).await?;
+        if let Some(body) = self.body.as_ref() {
+            if let Some(len) = body.len() {
+                let mut s: String<32> = String::new();
+                write!(s, "{}", len).map_err(|_| Error::Codec)?;
+                write_header(c, "Content-Length", s.as_str()).await?;
+            } else {
+                write_header(c, "Transfer-Encoding", "chunked").await?;
+            }
         }
         if let Some(extra_headers) = self.extra_headers {
             for (header, value) in extra_headers.iter() {
@@ -145,26 +161,44 @@ impl<'a> Request<'a> {
         }
         write_str(c, "\r\n").await?;
         trace!("Header written");
-        match self.body {
-            None => c.flush().await.map_err(|e| Error::Network(e.kind())),
-            Some(body) => {
-                trace!("Writing data");
-                let result = c.write(body).await;
-                match result {
-                    Ok(_) => c.flush().await.map_err(|e| Error::Network(e.kind())),
-                    Err(e) => {
-                        warn!("Error sending data: {:?}", e.kind());
-                        Err(Error::Network(e.kind()))
+        if let Some(body) = self.body.as_ref() {
+            match body.len() {
+                Some(0) => {
+                    // Empty body
+                }
+                Some(len) => {
+                    trace!("Writing not-chunked body");
+                    let mut writer = FixedBodyWriter(c, 0);
+                    body.write(&mut writer).await.map_err(|e| Error::Network(e.kind()))?;
+
+                    if writer.1 != len {
+                        return Err(Error::IncorrectBodyWritten);
                     }
+                }
+                None => {
+                    trace!("Writing chunked body");
+                    let mut writer = ChunkedBodyWriter(c, 0);
+                    body.write(&mut writer).await.map_err(|e| Error::Network(e.kind()))?;
+
+                    write_str(c, "0\r\n\r\n").await?;
                 }
             }
         }
+
+        c.flush().await.map_err(|e| Error::Network(e.kind()))
     }
 }
 
-pub struct DefaultRequestBuilder<'a>(Request<'a>);
+pub struct DefaultRequestBuilder<'a, B>(Request<'a, B>)
+where
+    B: RequestBody;
 
-impl<'a> RequestBuilder<'a> for DefaultRequestBuilder<'a> {
+impl<'a, B> RequestBuilder<'a, B> for DefaultRequestBuilder<'a, B>
+where
+    B: RequestBody,
+{
+    type WithBody<T: RequestBody> = DefaultRequestBuilder<'a, T>;
+
     fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
         self.0.extra_headers.replace(headers);
         self
@@ -175,9 +209,11 @@ impl<'a> RequestBuilder<'a> for DefaultRequestBuilder<'a> {
         self
     }
 
-    fn body(mut self, body: &'a [u8]) -> Self {
-        self.0.body.replace(body);
-        self
+    fn body<T: RequestBody>(self, body: T) -> Self::WithBody<T> {
+        DefaultRequestBuilder(Request {
+            body: Some(body),
+            ..self.0
+        })
     }
 
     fn host(mut self, host: &'a str) -> Self {
@@ -195,7 +231,7 @@ impl<'a> RequestBuilder<'a> for DefaultRequestBuilder<'a> {
         self
     }
 
-    fn build(self) -> Request<'a> {
+    fn build(self) -> Request<'a, B> {
         self.0
     }
 }
@@ -229,13 +265,8 @@ impl Method {
     }
 }
 
-async fn write_data<C: Write>(c: &mut C, data: &[u8]) -> Result<(), Error> {
-    c.write(data).await.map_err(|e| e.kind())?;
-    Ok(())
-}
-
 async fn write_str<C: Write>(c: &mut C, data: &str) -> Result<(), Error> {
-    write_data(c, data.as_bytes()).await
+    c.write_all(data.as_bytes()).await.map_err(|e| Error::Network(e.kind()))
 }
 
 async fn write_header<C: Write>(c: &mut C, key: &str, value: &str) -> Result<(), Error> {
@@ -244,6 +275,110 @@ async fn write_header<C: Write>(c: &mut C, key: &str, value: &str) -> Result<(),
     write_str(c, value).await?;
     write_str(c, "\r\n").await?;
     Ok(())
+}
+
+/// The request body
+pub trait RequestBody {
+    /// Get the length of the body if known
+    /// 
+    /// If the length is known, then it will be written in the `Content-Length` header,
+    /// chunked encoding will be used otherwise.
+    fn len(&self) -> Option<usize>;
+
+    /// Write the body to the provided writer
+    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error>;
+}
+
+impl RequestBody for () {
+    fn len(&self) -> Option<usize> {
+        None
+    }
+
+    async fn write<W: Write>(&self, _writer: &mut W) -> Result<(), W::Error> {
+        Ok(())
+    }
+}
+
+impl RequestBody for &[u8] {
+    fn len(&self) -> Option<usize> {
+        Some(<[u8]>::len(self))
+    }
+
+    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
+        writer.write_all(self).await
+    }
+}
+
+pub struct FixedBodyWriter<'a, C: Write>(&'a mut C, usize);
+
+impl<C> Io for FixedBodyWriter<'_, C>
+where
+    C: Write,
+{
+    type Error = C::Error;
+}
+
+impl<C> Write for FixedBodyWriter<'_, C>
+where
+    C: Write,
+{
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        let written = self.0.write(buf).await?;
+        self.1 += written;
+        Ok(written)
+    }
+
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.0.write_all(buf).await?;
+        self.1 += buf.len();
+        Ok(())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.0.flush().await
+    }
+}
+
+pub struct ChunkedBodyWriter<'a, C: Write>(&'a mut C, usize);
+
+impl<C> Io for ChunkedBodyWriter<'_, C>
+where
+    C: Write,
+{
+    type Error = C::Error;
+}
+
+impl<C> Write for ChunkedBodyWriter<'_, C>
+where
+    C: Write,
+{
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.write_all(buf).await?;
+        Ok(buf.len())
+    }
+
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        // Write chunk header
+        let len = buf.len();
+        let mut hex = [0; 2 * size_of::<usize>()];
+        hex::encode_to_slice(len.to_be_bytes(), &mut hex).unwrap();
+        let leading_zeros = hex.iter().position(|x| *x != b'0').unwrap_or_default();
+        let (_, hex) = hex.split_at(leading_zeros);
+        self.0.write_all(hex).await?;
+        self.0.write_all(b"\r\n").await?;
+
+        // Write chunk
+        self.0.write_all(buf).await?;
+        self.1 += len;
+
+        // Write newline
+        self.0.write_all(b"\r\n").await?;
+        Ok(())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.0.flush().await
+    }
 }
 
 #[cfg(test)]
@@ -262,6 +397,61 @@ mod tests {
 
         assert_eq!(
             b"GET / HTTP/1.1\r\nAuthorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=\r\n\r\n",
+            buffer.as_slice()
+        );
+    }
+
+    #[tokio::test]
+    async fn with_empty_body() {
+        let mut buffer = Vec::new();
+        Request::new(Method::POST, "/")
+            .body([].as_slice())
+            .build()
+            .write(&mut buffer)
+            .await
+            .unwrap();
+
+        assert_eq!(b"POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n", buffer.as_slice());
+    }
+
+    #[tokio::test]
+    async fn with_known_body() {
+        let mut buffer = Vec::new();
+        Request::new(Method::POST, "/")
+            .body(b"BODY".as_slice())
+            .build()
+            .write(&mut buffer)
+            .await
+            .unwrap();
+
+        assert_eq!(b"POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\nBODY", buffer.as_slice());
+    }
+
+    struct ChunkedBody<'a>(&'a [u8]);
+
+    impl RequestBody for ChunkedBody<'_> {
+        fn len(&self) -> Option<usize> {
+            None // Unknown length: triggers chunked body
+        }
+
+        async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
+            writer.write_all(self.0).await
+        }
+    }
+
+    #[tokio::test]
+    async fn with_unknown_body() {
+        let mut buffer = Vec::new();
+
+        Request::new(Method::POST, "/")
+            .body(ChunkedBody(b"BODY".as_slice()))
+            .build()
+            .write(&mut buffer)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nBODY\r\n0\r\n\r\n",
             buffer.as_slice()
         );
     }

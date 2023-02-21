@@ -118,7 +118,11 @@ where
         method: Method,
         url: &'m str,
     ) -> Result<
-        HttpRequestHandle<'m, HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>>,
+        HttpRequestHandle<
+            'm,
+            HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>,
+            (),
+        >,
         Error,
     > {
         let url = Url::parse(url)?;
@@ -169,9 +173,9 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf, 'conn>(
+    pub async fn send<'buf, 'conn, B: RequestBody>(
         &'conn mut self,
-        request: Request<'conn>,
+        request: Request<'conn, B>,
         rx_buf: &'buf mut [u8],
     ) -> Result<Response<'buf, 'conn, HttpConnection<T, S>>, Error> {
         request.write(self).await?;
@@ -223,17 +227,19 @@ where
 /// A HTTP request handle
 ///
 /// The underlying connection is closed when drop'ed.
-pub struct HttpRequestHandle<'a, C>
+pub struct HttpRequestHandle<'a, C, B>
 where
     C: Read + Write,
+    B: RequestBody,
 {
     pub conn: C,
-    request: Option<DefaultRequestBuilder<'a>>,
+    request: Option<DefaultRequestBuilder<'a, B>>,
 }
 
-impl<C> HttpRequestHandle<'_, C>
+impl<C, B> HttpRequestHandle<'_, C, B>
 where
     C: Read + Write,
+    B: RequestBody,
 {
     /// Send the request.
     ///
@@ -247,10 +253,13 @@ where
     }
 }
 
-impl<'a, C> RequestBuilder<'a> for HttpRequestHandle<'a, C>
+impl<'a, C, B> RequestBuilder<'a, B> for HttpRequestHandle<'a, C, B>
 where
     C: Read + Write,
+    B: RequestBody,
 {
+    type WithBody<T: RequestBody> = HttpRequestHandle<'a, C, T>;
+
     fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
         self.request = Some(self.request.unwrap().headers(headers));
         self
@@ -261,9 +270,11 @@ where
         self
     }
 
-    fn body(mut self, body: &'a [u8]) -> Self {
-        self.request = Some(self.request.unwrap().body(body));
-        self
+    fn body<T: RequestBody>(self, body: T) -> Self::WithBody<T> {
+        HttpRequestHandle {
+            request: Some(self.request.unwrap().body(body)),
+            ..self
+        }
     }
 
     fn host(mut self, host: &'a str) -> Self {
@@ -281,7 +292,7 @@ where
         self
     }
 
-    fn build(self) -> Request<'a> {
+    fn build(self) -> Request<'a, B> {
         self.request.unwrap().build()
     }
 }
@@ -302,7 +313,11 @@ impl<'a, C> HttpResource<'a, C>
 where
     C: Read + Write,
 {
-    pub fn request<'conn>(&'conn mut self, method: Method, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+    pub fn request<'conn>(
+        &'conn mut self,
+        method: Method,
+        path: &'a str,
+    ) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
         HttpResourceRequestBuilder {
             conn: &mut self.conn,
             request: Request::new(method, path).host(self.host),
@@ -311,27 +326,27 @@ where
     }
 
     /// Create a new scoped GET http request.
-    pub fn get<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+    pub fn get<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
         self.request(Method::GET, path)
     }
 
     /// Create a new scoped POST http request.
-    pub fn post<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+    pub fn post<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
         self.request(Method::POST, path)
     }
 
     /// Create a new scoped PUT http request.
-    pub fn put<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+    pub fn put<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
         self.request(Method::PUT, path)
     }
 
     /// Create a new scoped DELETE http request.
-    pub fn delete<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+    pub fn delete<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
         self.request(Method::DELETE, path)
     }
 
     /// Create a new scoped HEAD http request.
-    pub fn head<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C> {
+    pub fn head<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
         self.request(Method::HEAD, path)
     }
 
@@ -341,9 +356,9 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf, 'conn>(
+    pub async fn send<'buf, 'conn, B: RequestBody>(
         &'conn mut self,
-        mut request: Request<'a>,
+        mut request: Request<'a, B>,
         rx_buf: &'buf mut [u8],
     ) -> Result<Response<'buf, 'conn, C>, Error> {
         request.base_path = Some(self.base_path);
@@ -352,18 +367,20 @@ where
     }
 }
 
-pub struct HttpResourceRequestBuilder<'a, 'conn, C>
+pub struct HttpResourceRequestBuilder<'a, 'conn, C, B>
 where
     C: Read + Write,
+    B: RequestBody,
 {
     conn: &'conn mut C,
-    request: DefaultRequestBuilder<'a>,
+    request: DefaultRequestBuilder<'a, B>,
     base_path: &'a str,
 }
 
-impl<'a, 'conn, C> HttpResourceRequestBuilder<'a, 'conn, C>
+impl<'a, 'conn, C, B> HttpResourceRequestBuilder<'a, 'conn, C, B>
 where
     C: Read + Write,
+    B: RequestBody,
 {
     /// Send the request.
     ///
@@ -380,10 +397,13 @@ where
     }
 }
 
-impl<'a, 'conn, C> RequestBuilder<'a> for HttpResourceRequestBuilder<'a, 'conn, C>
+impl<'a, 'conn, C, B> RequestBuilder<'a, B> for HttpResourceRequestBuilder<'a, 'conn, C, B>
 where
     C: Read + Write,
+    B: RequestBody,
 {
+    type WithBody<T: RequestBody> = HttpResourceRequestBuilder<'a, 'conn, C, T>;
+
     fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
         self.request = self.request.headers(headers);
         self
@@ -394,9 +414,11 @@ where
         self
     }
 
-    fn body(mut self, body: &'a [u8]) -> Self {
-        self.request = self.request.body(body);
-        self
+    fn body<T: RequestBody>(self, body: T) -> Self::WithBody<T> {
+        HttpResourceRequestBuilder {
+            request: self.request.body(body),
+            ..self
+        }
     }
 
     fn host(mut self, host: &'a str) -> Self {
@@ -414,7 +436,7 @@ where
         self
     }
 
-    fn build(self) -> Request<'a> {
+    fn build(self) -> Request<'a, B> {
         self.request.build()
     }
 }

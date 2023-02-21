@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(impl_trait_projections)]
 #![feature(async_fn_in_trait)]
+#![feature(type_changing_struct_update)]
 #![allow(incomplete_features)]
 #![doc = include_str!("../README.md")]
 use core::{num::ParseIntError, str::Utf8Error};
@@ -31,6 +32,8 @@ pub enum Error {
     BufferTooSmall,
     /// The request is already sent
     AlreadySent,
+    /// An invalid number of bytes were written to request body
+    IncorrectBodyWritten,
 }
 
 impl embedded_io::Error for Error {
