@@ -280,10 +280,12 @@ async fn write_header<C: Write>(c: &mut C, key: &str, value: &str) -> Result<(),
 /// The request body
 pub trait RequestBody {
     /// Get the length of the body if known
-    /// 
+    ///
     /// If the length is known, then it will be written in the `Content-Length` header,
     /// chunked encoding will be used otherwise.
-    fn len(&self) -> Option<usize>;
+    fn len(&self) -> Option<usize> {
+        None
+    }
 
     /// Write the body to the provided writer
     async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error>;
