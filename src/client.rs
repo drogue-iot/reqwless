@@ -272,8 +272,8 @@ where
 
     fn body<T: RequestBody>(self, body: T) -> Self::WithBody<T> {
         HttpRequestHandle {
+            conn: self.conn,
             request: Some(self.request.unwrap().body(body)),
-            ..self
         }
     }
 
@@ -416,8 +416,9 @@ where
 
     fn body<T: RequestBody>(self, body: T) -> Self::WithBody<T> {
         HttpResourceRequestBuilder {
+            conn: self.conn,
+            base_path: self.base_path,
             request: self.request.body(body),
-            ..self
         }
     }
 

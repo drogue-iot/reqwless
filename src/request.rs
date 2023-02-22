@@ -211,8 +211,14 @@ where
 
     fn body<T: RequestBody>(self, body: T) -> Self::WithBody<T> {
         DefaultRequestBuilder(Request {
+            method: self.0.method,
+            base_path: self.0.base_path,
+            path: self.0.path,
+            auth: self.0.auth,
+            host: self.0.host,
             body: Some(body),
-            ..self.0
+            content_type: self.0.content_type,
+            extra_headers: self.0.extra_headers,
         })
     }
 
@@ -278,6 +284,7 @@ async fn write_header<C: Write>(c: &mut C, key: &str, value: &str) -> Result<(),
 }
 
 /// The request body
+#[allow(clippy::len_without_is_empty)]
 pub trait RequestBody {
     /// Get the length of the body if known
     ///
