@@ -318,6 +318,23 @@ impl RequestBody for &[u8] {
     }
 }
 
+impl<T> RequestBody for Option<T>
+where
+    T: RequestBody,
+{
+    fn len(&self) -> Option<usize> {
+        self.as_ref().map(|inner| inner.len()).unwrap_or_default()
+    }
+
+    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
+        if let Some(inner) = self.as_ref() {
+            inner.write(writer).await
+        } else {
+            Ok(())
+        }
+    }
+}
+
 pub struct FixedBodyWriter<'a, C: Write>(&'a mut C, usize);
 
 impl<C> Io for FixedBodyWriter<'_, C>
