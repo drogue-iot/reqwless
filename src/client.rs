@@ -135,11 +135,11 @@ where
 
     /// Create a connection to a server with the provided `resource_url`.
     /// The path in the url is considered the base path for subsequent requests.
-    pub async fn resource<'m>(
-        &'m mut self,
-        resource_url: &'m str,
+    pub async fn resource<'res>(
+        &'res mut self,
+        resource_url: &'res str,
     ) -> Result<
-        HttpResource<'m, HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>>,
+        HttpResource<'res, HttpConnection<T::Connection<'res>, TlsConnection<'res, T::Connection<'res>, Aes128GcmSha256>>>,
         Error,
     > {
         let resource_url = Url::parse(resource_url)?;
@@ -227,13 +227,13 @@ where
 /// A HTTP request handle
 ///
 /// The underlying connection is closed when drop'ed.
-pub struct HttpRequestHandle<'a, C, B>
+pub struct HttpRequestHandle<'m, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
     pub conn: C,
-    request: Option<DefaultRequestBuilder<'a, B>>,
+    request: Option<DefaultRequestBuilder<'m, B>>,
 }
 
 impl<C, B> HttpRequestHandle<'_, C, B>
@@ -253,19 +253,19 @@ where
     }
 }
 
-impl<'a, C, B> RequestBuilder<'a, B> for HttpRequestHandle<'a, C, B>
+impl<'m, C, B> RequestBuilder<'m, B> for HttpRequestHandle<'m, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
-    type WithBody<T: RequestBody> = HttpRequestHandle<'a, C, T>;
+    type WithBody<T: RequestBody> = HttpRequestHandle<'m, C, T>;
 
-    fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
+    fn headers(mut self, headers: &'m [(&'m str, &'m str)]) -> Self {
         self.request = Some(self.request.unwrap().headers(headers));
         self
     }
 
-    fn path(mut self, path: &'a str) -> Self {
+    fn path(mut self, path: &'m str) -> Self {
         self.request = Some(self.request.unwrap().path(path));
         self
     }
@@ -277,7 +277,7 @@ where
         }
     }
 
-    fn host(mut self, host: &'a str) -> Self {
+    fn host(mut self, host: &'m str) -> Self {
         self.request = Some(self.request.unwrap().host(host));
         self
     }
@@ -287,12 +287,12 @@ where
         self
     }
 
-    fn basic_auth(mut self, username: &'a str, password: &'a str) -> Self {
+    fn basic_auth(mut self, username: &'m str, password: &'m str) -> Self {
         self.request = Some(self.request.unwrap().basic_auth(username, password));
         self
     }
 
-    fn build(self) -> Request<'a, B> {
+    fn build(self) -> Request<'m, B> {
         self.request.unwrap().build()
     }
 }
@@ -300,24 +300,27 @@ where
 /// A HTTP resource describing a scoped endpoint
 ///
 /// The underlying connection is closed when drop'ed.
-pub struct HttpResource<'a, C>
+pub struct HttpResource<'res, C>
 where
     C: Read + Write,
 {
     pub conn: C,
-    pub host: &'a str,
-    pub base_path: &'a str,
+    pub host: &'res str,
+    pub base_path: &'res str,
 }
 
-impl<'a, C> HttpResource<'a, C>
+impl<'res, C> HttpResource<'res, C>
 where
     C: Read + Write,
 {
-    pub fn request<'conn>(
+    pub fn request<'conn, 'm>(
         &'conn mut self,
         method: Method,
-        path: &'a str,
-    ) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
+        path: &'m str,
+    ) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
+    where
+        'res: 'm,
+    {
         HttpResourceRequestBuilder {
             conn: &mut self.conn,
             request: Request::new(method, path).host(self.host),
@@ -326,27 +329,42 @@ where
     }
 
     /// Create a new scoped GET http request.
-    pub fn get<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
+    pub fn get<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
+    where
+        'res: 'm,
+    {
         self.request(Method::GET, path)
     }
 
     /// Create a new scoped POST http request.
-    pub fn post<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
+    pub fn post<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
+    where
+        'res: 'm,
+    {
         self.request(Method::POST, path)
     }
 
     /// Create a new scoped PUT http request.
-    pub fn put<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
+    pub fn put<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
+    where
+        'res: 'm,
+    {
         self.request(Method::PUT, path)
     }
 
     /// Create a new scoped DELETE http request.
-    pub fn delete<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
+    pub fn delete<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
+    where
+        'res: 'm,
+    {
         self.request(Method::DELETE, path)
     }
 
     /// Create a new scoped HEAD http request.
-    pub fn head<'conn>(&'conn mut self, path: &'a str) -> HttpResourceRequestBuilder<'a, 'conn, C, ()> {
+    pub fn head<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
+    where
+        'res: 'm,
+    {
         self.request(Method::HEAD, path)
     }
 
@@ -358,7 +376,7 @@ where
     /// The response is returned.
     pub async fn send<'buf, 'conn, B: RequestBody>(
         &'conn mut self,
-        mut request: Request<'a, B>,
+        mut request: Request<'res, B>,
         rx_buf: &'buf mut [u8],
     ) -> Result<Response<'buf, 'conn, C>, Error> {
         request.base_path = Some(self.base_path);
@@ -367,17 +385,17 @@ where
     }
 }
 
-pub struct HttpResourceRequestBuilder<'a, 'conn, C, B>
+pub struct HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
     conn: &'conn mut C,
-    request: DefaultRequestBuilder<'a, B>,
-    base_path: &'a str,
+    base_path: &'res str,
+    request: DefaultRequestBuilder<'m, B>,
 }
 
-impl<'a, 'conn, C, B> HttpResourceRequestBuilder<'a, 'conn, C, B>
+impl<'conn, 'res, 'm, C, B> HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
 where
     C: Read + Write,
     B: RequestBody,
@@ -397,19 +415,19 @@ where
     }
 }
 
-impl<'a, 'conn, C, B> RequestBuilder<'a, B> for HttpResourceRequestBuilder<'a, 'conn, C, B>
+impl<'conn, 'res, 'm, C, B> RequestBuilder<'m, B> for HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
-    type WithBody<T: RequestBody> = HttpResourceRequestBuilder<'a, 'conn, C, T>;
+    type WithBody<T: RequestBody> = HttpResourceRequestBuilder<'conn, 'res, 'm, C, T>;
 
-    fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
+    fn headers(mut self, headers: &'m [(&'m str, &'m str)]) -> Self {
         self.request = self.request.headers(headers);
         self
     }
 
-    fn path(mut self, path: &'a str) -> Self {
+    fn path(mut self, path: &'m str) -> Self {
         self.request = self.request.path(path);
         self
     }
@@ -422,7 +440,7 @@ where
         }
     }
 
-    fn host(mut self, host: &'a str) -> Self {
+    fn host(mut self, host: &'m str) -> Self {
         self.request = self.request.host(host);
         self
     }
@@ -432,12 +450,12 @@ where
         self
     }
 
-    fn basic_auth(mut self, username: &'a str, password: &'a str) -> Self {
+    fn basic_auth(mut self, username: &'m str, password: &'m str) -> Self {
         self.request = self.request.basic_auth(username, password);
         self
     }
 
-    fn build(self) -> Request<'a, B> {
+    fn build(self) -> Request<'m, B> {
         self.request.build()
     }
 }
