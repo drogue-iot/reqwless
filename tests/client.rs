@@ -57,7 +57,7 @@ async fn test_request_response_notls() {
         .request(Method::POST, &url)
         .await
         .unwrap()
-        .body(b"PING")
+        .body(b"PING".as_slice())
         .content_type(ContentType::TextPlain);
     let response = request.send(&mut rx_buf).await.unwrap();
     let body = response.body().unwrap().read_to_end().await;
@@ -91,7 +91,7 @@ async fn test_resource_notls() {
     let mut resource = client.resource(&url).await.unwrap();
     let response = resource
         .post("/")
-        .body(b"PING")
+        .body(b"PING".as_slice())
         .content_type(ContentType::TextPlain)
         .send(&mut rx_buf)
         .await
@@ -155,7 +155,7 @@ async fn test_resource_rustls() {
     let mut resource = client.resource(&url).await.unwrap();
     let response = resource
         .post("/")
-        .body(b"PING")
+        .body(b"PING".as_slice())
         .content_type(ContentType::TextPlain)
         .send(&mut rx_buf)
         .await

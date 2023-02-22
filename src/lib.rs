@@ -31,6 +31,8 @@ pub enum Error {
     BufferTooSmall,
     /// The request is already sent
     AlreadySent,
+    /// An invalid number of bytes were written to request body
+    IncorrectBodyWritten,
 }
 
 impl embedded_io::Error for Error {

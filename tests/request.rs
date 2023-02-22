@@ -38,7 +38,7 @@ async fn test_request_response() {
     let mut stream = FromTokio::new(stream);
 
     let request = Request::post("/")
-        .body(b"PING")
+        .body(b"PING".as_slice())
         .content_type(ContentType::TextPlain)
         .build();
 
