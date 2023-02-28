@@ -7,6 +7,7 @@ use core::{num::ParseIntError, str::Utf8Error};
 
 mod fmt;
 
+mod buffering;
 pub mod client;
 mod concat;
 pub mod headers;
