@@ -139,7 +139,7 @@ where
         } else if self.transfer_encoding.contains(&TransferEncoding::Chunked) {
             ReaderHint::Chunked
         } else {
-            return Err(Error::Codec);
+            ReaderHint::ToEnd
         };
 
         // Move the body part of the bytes in the header buffer to the beginning of the buffer
@@ -194,6 +194,7 @@ enum ReaderHint {
     Empty,
     FixedLength(usize),
     Chunked,
+    ToEnd, // https://www.rfc-editor.org/rfc/rfc7230#section-3.3.3 pt. 7: Until end of connection
 }
 
 impl<'buf, 'conn, C> ResponseBody<'buf, 'conn, C>
@@ -214,6 +215,7 @@ where
                 chunk_remaining: 0,
                 empty_chunk_received: false,
             }),
+            ReaderHint::ToEnd => BodyReader::ToEnd(raw_body),
         }
     }
 }
@@ -222,25 +224,44 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
     ///
-    /// This is only valid if Content-Length is specified in the response, as any other body encoding would require
-    /// that the body bytes over-read while parsing the http response header would be availble for the body reader.
-    /// In those cases, use [`BodyReader::read_to_end()`] instead from the reader returned by [`ResponseBody::reader()`].
+    /// This is not valid for chunked responses as it requires that the body bytes over-read
+    /// while parsing the http response header would be availble for the body reader.
+    /// For this case, of if the original buffer is not large enough, use
+    /// [`BodyReader::read_to_end()`] instead from the reader returned by [`ResponseBody::reader()`].
     pub async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
         // We can only read responses with Content-Length header to end using the body_buf buffer,
         // as any other response would require the body reader to know the entire body.
-        if let ReaderHint::FixedLength(content_length) = self.reader_hint {
-            // Read into the buffer after the portion that was already received when parsing the header
-            self.conn
-                .read_exact(&mut self.body_buf[self.raw_body_read..content_length])
-                .await
-                .map_err(|e| match e {
-                    ReadExactError::UnexpectedEof => Error::Codec,
-                    ReadExactError::Other(e) => Error::Network(e.kind()),
-                })?;
+        match self.reader_hint {
+            ReaderHint::Empty => Ok(&mut []),
+            ReaderHint::FixedLength(content_length) => {
+                // Read into the buffer after the portion that was already received when parsing the header
+                self.conn
+                    .read_exact(&mut self.body_buf[self.raw_body_read..content_length])
+                    .await
+                    .map_err(|e| match e {
+                        ReadExactError::UnexpectedEof => Error::Codec,
+                        ReadExactError::Other(e) => Error::Network(e.kind()),
+                    })?;
 
-            Ok(&mut self.body_buf[..content_length])
-        } else {
-            Err(Error::Codec)
+                Ok(&mut self.body_buf[..content_length])
+            }
+            ReaderHint::Chunked => Err(Error::Codec),
+            ReaderHint::ToEnd => {
+                let mut body_len = self.raw_body_read;
+                loop {
+                    let len = self
+                        .conn
+                        .read(&mut self.body_buf[body_len..])
+                        .await
+                        .map_err(|e| Error::Network(e.kind()))?;
+                    if len == 0 {
+                        break;
+                    }
+                    body_len += len;
+                }
+
+                Ok(&mut self.body_buf[..body_len])
+            }
         }
     }
 }
@@ -253,6 +274,7 @@ where
     Empty,
     FixedLength(FixedLengthBodyReader<B>),
     Chunked(ChunkedBodyReader<B>),
+    ToEnd(B),
 }
 
 impl<B> BodyReader<B>
@@ -274,6 +296,7 @@ where
             BodyReader::Empty => true,
             BodyReader::FixedLength(reader) => reader.remaining == 0,
             BodyReader::Chunked(reader) => reader.empty_chunk_received,
+            BodyReader::ToEnd(_) => true,
         };
 
         if is_done {
@@ -300,6 +323,7 @@ where
             BodyReader::Empty => Ok(0),
             BodyReader::FixedLength(reader) => reader.read(buf).await,
             BodyReader::Chunked(reader) => reader.read(buf).await,
+            BodyReader::ToEnd(conn) => conn.read(buf).await.map_err(|e| Error::Network(e.kind())),
         }
     }
 }
@@ -554,7 +578,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn can_read_with_content_length() {
+    async fn can_read_with_content_length_to_other_buffer() {
         let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
@@ -577,6 +601,39 @@ mod tests {
     async fn can_read_with_chunked_encoding() {
         let mut response =
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut header_buf = [0; 200];
+        let response = Response::read(&mut response, Method::GET, &mut header_buf)
+            .await
+            .unwrap();
+
+        let mut body_buf = [0; 200];
+        let len = response
+            .body()
+            .unwrap()
+            .reader()
+            .read_to_end(&mut body_buf)
+            .await
+            .unwrap();
+
+        assert_eq!(b"HELLO WORLD", &body_buf[..len]);
+    }
+
+    #[tokio::test]
+    async fn can_read_to_end_of_connection_with_same_buffer() {
+        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
+        let mut header_buf = [0; 200];
+        let response = Response::read(&mut response, Method::GET, &mut header_buf)
+            .await
+            .unwrap();
+
+        let body = response.body().unwrap().read_to_end().await.unwrap();
+
+        assert_eq!(b"HELLO WORLD", body);
+    }
+
+    #[tokio::test]
+    async fn can_read_to_end_of_connection_to_other_buffer() {
+        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
