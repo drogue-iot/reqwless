@@ -454,8 +454,8 @@ impl<C: Read> Read for ChunkedBodyReader<C> {
             self.read_chunk_end().await?;
             Ok(0)
         } else {
-            let len = usize::min(self.chunk_remaining as usize, buf.len());
-            self.raw_body.read(&mut buf[..len]).await.map_err(|e| e.kind())?;
+            let max_len = usize::min(self.chunk_remaining as usize, buf.len());
+            let len = self.raw_body.read(&mut buf[..max_len]).await.map_err(|e| e.kind())?;
             if len == 0 {
                 return Err(Error::ConnectionClosed);
             }
