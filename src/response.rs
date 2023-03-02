@@ -263,6 +263,13 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
             }
         }
     }
+
+    /// Discard the entire body
+    ///
+    /// Returns the number of discarded buffer bytes
+    pub async fn discard(self) -> Result<usize, Error> {
+        self.reader().discard().await
+    }
 }
 
 /// A body reader
@@ -303,6 +310,20 @@ where
         } else {
             Err(Error::BufferTooSmall)
         }
+    }
+
+    async fn discard(&mut self) -> Result<usize, Error> {
+        let mut body_len = 0;
+        loop {
+            let mut trash = [0; 256];
+            let len = self.read(&mut trash).await?;
+            if len == 0 {
+                break;
+            }
+            body_len += len;
+        }
+
+        Ok(body_len)
     }
 }
 
@@ -602,6 +623,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn can_discard_with_content_length() {
+        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
+        let mut response_buf = [0; 200];
+        let response = Response::read(&mut response, Method::GET, &mut response_buf)
+            .await
+            .unwrap();
+
+        assert_eq!(11, response.body().unwrap().discard().await.unwrap());
+    }
+
+    #[tokio::test]
     async fn can_read_with_chunked_encoding() {
         let mut response =
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
@@ -620,6 +652,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
+    }
+
+    #[tokio::test]
+    async fn can_discard_with_chunked_encoding() {
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut header_buf = [0; 200];
+        let response = Response::read(&mut response, Method::GET, &mut header_buf)
+            .await
+            .unwrap();
+
+        assert_eq!(11, response.body().unwrap().discard().await.unwrap());
     }
 
     #[tokio::test]
@@ -653,6 +697,17 @@ mod tests {
             .unwrap();
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
+    }
+
+    #[tokio::test]
+    async fn can_discard_to_end_of_connection() {
+        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
+        let mut header_buf = [0; 200];
+        let response = Response::read(&mut response, Method::GET, &mut header_buf)
+            .await
+            .unwrap();
+
+        assert_eq!(11, response.body().unwrap().discard().await.unwrap());
     }
 
     #[tokio::test]
