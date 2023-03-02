@@ -133,7 +133,7 @@ where
     }
 
     /// Get the response body
-    pub fn body(self) -> Result<ResponseBody<'buf, 'conn, C>, Error> {
+    pub fn body(self) -> ResponseBody<'buf, 'conn, C> {
         let reader_hint = if self.method == Method::HEAD {
             // Head requests does not have a body so we return an empty reader
             ReaderHint::Empty
@@ -153,12 +153,12 @@ where
         // From now on, the header buffer is now the body buffer as all header bytes have been overwritten
         let body_buf = header_buf;
 
-        Ok(ResponseBody {
+        ResponseBody {
             conn: self.conn,
             reader_hint,
             body_buf,
             raw_body_read: self.raw_body_read,
-        })
+        }
     }
 }
 
@@ -597,7 +597,7 @@ mod tests {
             .await
             .unwrap();
 
-        let body = response.body().unwrap().read_to_end().await.unwrap();
+        let body = response.body().read_to_end().await.unwrap();
 
         assert_eq!(b"HELLO WORLD", body);
     }
@@ -611,13 +611,7 @@ mod tests {
             .unwrap();
 
         let mut body_buf = [0; 200];
-        let len = response
-            .body()
-            .unwrap()
-            .reader()
-            .read_to_end(&mut body_buf)
-            .await
-            .unwrap();
+        let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
     }
@@ -630,7 +624,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(11, response.body().unwrap().discard().await.unwrap());
+        assert_eq!(11, response.body().discard().await.unwrap());
     }
 
     #[tokio::test]
@@ -643,13 +637,7 @@ mod tests {
             .unwrap();
 
         let mut body_buf = [0; 200];
-        let len = response
-            .body()
-            .unwrap()
-            .reader()
-            .read_to_end(&mut body_buf)
-            .await
-            .unwrap();
+        let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
     }
@@ -663,7 +651,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(11, response.body().unwrap().discard().await.unwrap());
+        assert_eq!(11, response.body().discard().await.unwrap());
     }
 
     #[tokio::test]
@@ -674,7 +662,7 @@ mod tests {
             .await
             .unwrap();
 
-        let body = response.body().unwrap().read_to_end().await.unwrap();
+        let body = response.body().read_to_end().await.unwrap();
 
         assert_eq!(b"HELLO WORLD", body);
     }
@@ -688,13 +676,7 @@ mod tests {
             .unwrap();
 
         let mut body_buf = [0; 200];
-        let len = response
-            .body()
-            .unwrap()
-            .reader()
-            .read_to_end(&mut body_buf)
-            .await
-            .unwrap();
+        let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
     }
@@ -707,7 +689,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(11, response.body().unwrap().discard().await.unwrap());
+        assert_eq!(11, response.body().discard().await.unwrap());
     }
 
     #[tokio::test]

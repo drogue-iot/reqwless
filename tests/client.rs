@@ -60,7 +60,7 @@ async fn test_request_response_notls() {
         .body(b"PING".as_slice())
         .content_type(ContentType::TextPlain);
     let response = request.send(&mut rx_buf).await.unwrap();
-    let body = response.body().unwrap().read_to_end().await;
+    let body = response.body().read_to_end().await;
     assert_eq!(body.unwrap(), b"PING");
 
     tx.send(()).unwrap();
@@ -96,7 +96,7 @@ async fn test_resource_notls() {
         .send(&mut rx_buf)
         .await
         .unwrap();
-    let body = response.body().unwrap().read_to_end().await;
+    let body = response.body().read_to_end().await;
     assert_eq!(body.unwrap(), b"PING");
 
     tx.send(()).unwrap();
@@ -160,7 +160,7 @@ async fn test_resource_rustls() {
         .send(&mut rx_buf)
         .await
         .unwrap();
-    let body = response.body().unwrap().read_to_end().await.unwrap();
+    let body = response.body().read_to_end().await.unwrap();
     assert_eq!(body, b"PING");
 
     tx.send(()).unwrap();
@@ -186,7 +186,7 @@ async fn test_resource_drogue_cloud_sandbox() {
     let mut resource = client.resource("https://http.sandbox.drogue.cloud/v1").await.unwrap();
     let response = resource.post("/telemetry").send(&mut rx_buf).await.unwrap();
     assert_eq!(Status::Forbidden, response.status);
-    let body = response.body().unwrap().read_to_end().await.unwrap();
+    let body = response.body().read_to_end().await.unwrap();
     assert!(!body.is_empty());
 }
 
