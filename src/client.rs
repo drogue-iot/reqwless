@@ -246,6 +246,8 @@ where
     B: RequestBody,
 {
     /// Turn the request into a buffered request
+    ///
+    /// This is most likely only relevant for non-tls endpoints, as `embedded-tls` buffers internally.
     pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpRequestHandle<'m, BufferedWrite<'buf, C>, B> {
         HttpRequestHandle {
             conn: BufferedWrite::new(self.conn, tx_buf),
@@ -326,6 +328,8 @@ where
     C: Read + Write,
 {
     /// Turn the resource into a buffered resource
+    ///
+    /// This is most likely only relevant for non-tls endpoints, as `embedded-tls` buffers internally.
     pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpResource<'res, BufferedWrite<'buf, C>> {
         HttpResource {
             conn: BufferedWrite::new(self.conn, tx_buf),
