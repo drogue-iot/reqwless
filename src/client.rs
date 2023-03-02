@@ -1,8 +1,8 @@
-use crate::buffering::BufferedWrite;
 use crate::headers::ContentType;
 use crate::request::*;
 use crate::response::*;
 use crate::Error;
+use buffered_io::asynch::BufferedWrite;
 use embedded_io::asynch::{Read, Write};
 use embedded_io::Error as _;
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
