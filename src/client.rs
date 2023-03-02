@@ -88,7 +88,7 @@ where
             .client
             .connect(SocketAddr::new(remote, port))
             .await
-            .map_err(|e| Error::Network(e.kind()))?;
+            .map_err(|e| e.kind())?;
 
         if url.scheme() == UrlScheme::HTTPS {
             if let Some(tls) = self.tls.as_mut() {

@@ -169,7 +169,7 @@ where
                 Some(len) => {
                     trace!("Writing not-chunked body");
                     let mut writer = FixedBodyWriter(c, 0);
-                    body.write(&mut writer).await.map_err(|e| Error::Network(e.kind()))?;
+                    body.write(&mut writer).await.map_err(|e| e.kind())?;
 
                     if writer.1 != len {
                         return Err(Error::IncorrectBodyWritten);
@@ -178,14 +178,15 @@ where
                 None => {
                     trace!("Writing chunked body");
                     let mut writer = ChunkedBodyWriter(c, 0);
-                    body.write(&mut writer).await.map_err(|e| Error::Network(e.kind()))?;
+                    body.write(&mut writer).await.map_err(|e| e.kind())?;
 
                     write_str(c, "0\r\n\r\n").await?;
                 }
             }
         }
 
-        c.flush().await.map_err(|e| Error::Network(e.kind()))
+        c.flush().await.map_err(|e| e.kind())?;
+        Ok(())
     }
 }
 
@@ -272,7 +273,8 @@ impl Method {
 }
 
 async fn write_str<C: Write>(c: &mut C, data: &str) -> Result<(), Error> {
-    c.write_all(data.as_bytes()).await.map_err(|e| Error::Network(e.kind()))
+    c.write_all(data.as_bytes()).await.map_err(|e| e.kind())?;
+    Ok(())
 }
 
 async fn write_header<C: Write>(c: &mut C, key: &str, value: &str) -> Result<(), Error> {
