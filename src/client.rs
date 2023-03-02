@@ -2,6 +2,7 @@ use crate::headers::ContentType;
 use crate::request::*;
 use crate::response::*;
 use crate::Error;
+use buffered_io::asynch::BufferedWrite;
 use embedded_io::asynch::{Read, Write};
 use embedded_io::Error as _;
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
@@ -139,7 +140,10 @@ where
         &'res mut self,
         resource_url: &'res str,
     ) -> Result<
-        HttpResource<'res, HttpConnection<T::Connection<'res>, TlsConnection<'res, T::Connection<'res>, Aes128GcmSha256>>>,
+        HttpResource<
+            'res,
+            HttpConnection<T::Connection<'res>, TlsConnection<'res, T::Connection<'res>, Aes128GcmSha256>>,
+        >,
         Error,
     > {
         let resource_url = Url::parse(resource_url)?;
@@ -236,11 +240,21 @@ where
     request: Option<DefaultRequestBuilder<'m, B>>,
 }
 
-impl<C, B> HttpRequestHandle<'_, C, B>
+impl<'m, C, B> HttpRequestHandle<'m, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
+    /// Turn the request into a buffered request
+    ///
+    /// This is most likely only relevant for non-tls endpoints, as `embedded-tls` buffers internally.
+    pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpRequestHandle<'m, BufferedWrite<'buf, C>, B> {
+        HttpRequestHandle {
+            conn: BufferedWrite::new(self.conn, tx_buf),
+            request: self.request,
+        }
+    }
+
     /// Send the request.
     ///
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
@@ -313,6 +327,17 @@ impl<'res, C> HttpResource<'res, C>
 where
     C: Read + Write,
 {
+    /// Turn the resource into a buffered resource
+    ///
+    /// This is most likely only relevant for non-tls endpoints, as `embedded-tls` buffers internally.
+    pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpResource<'res, BufferedWrite<'buf, C>> {
+        HttpResource {
+            conn: BufferedWrite::new(self.conn, tx_buf),
+            host: self.host,
+            base_path: self.base_path,
+        }
+    }
+
     pub fn request<'conn, 'm>(
         &'conn mut self,
         method: Method,
