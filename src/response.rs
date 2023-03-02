@@ -1,4 +1,3 @@
-use embedded_io::blocking::ReadExactError;
 use embedded_io::{asynch::Read, Error as _, Io};
 use heapless::Vec;
 
@@ -51,6 +50,10 @@ where
                 );*/
                 e.kind()
             })?;
+
+            if n == 0 {
+                return Err(Error::ConnectionClosed);
+            }
 
             pos += n;
 
@@ -237,11 +240,7 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
                 // Read into the buffer after the portion that was already received when parsing the header
                 self.conn
                     .read_exact(&mut self.body_buf[self.raw_body_read..content_length])
-                    .await
-                    .map_err(|e| match e {
-                        ReadExactError::UnexpectedEof => Error::Codec,
-                        ReadExactError::Other(e) => Error::Network(e.kind()),
-                    })?;
+                    .await?;
 
                 Ok(&mut self.body_buf[..content_length])
             }
@@ -253,7 +252,7 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
                         .conn
                         .read(&mut self.body_buf[body_len..])
                         .await
-                        .map_err(|e| Error::Network(e.kind()))?;
+                        .map_err(|e| e.kind())?;
                     if len == 0 {
                         break;
                     }
@@ -345,8 +344,12 @@ impl<C: Read> Read for FixedLengthBodyReader<C> {
         }
         let to_read = usize::min(self.remaining, buf.len());
         let len = self.raw_body.read(&mut buf[..to_read]).await.map_err(|e| e.kind())?;
-        self.remaining -= len;
-        Ok(len)
+        if len > 0 {
+            self.remaining -= len;
+            Ok(len)
+        } else {
+            Err(Error::ConnectionClosed)
+        }
     }
 }
 
@@ -364,10 +367,7 @@ impl<C: Read> ChunkedBodyReader<C> {
     async fn read_chunk_end(&mut self) -> Result<(), Error> {
         // All chunks are terminated with a \r\n
         let mut newline_buf = [0; 2];
-        self.raw_body
-            .read_exact(&mut newline_buf)
-            .await
-            .map_err(|_| Error::Codec)?;
+        self.raw_body.read_exact(&mut newline_buf).await?;
 
         if newline_buf != [b'\r', b'\n'] {
             return Err(Error::Codec);
@@ -401,7 +401,7 @@ impl<C: Read> Read for ChunkedBodyReader<C> {
                     .await
                     .map_err(|e| e.kind())?;
                 if read == 0 {
-                    return Err(Error::Codec);
+                    return Err(Error::ConnectionClosed);
                 }
                 total_read += read;
 
@@ -454,8 +454,12 @@ impl<C: Read> Read for ChunkedBodyReader<C> {
             self.read_chunk_end().await?;
             Ok(0)
         } else {
-            let len = usize::min(self.chunk_remaining as usize, buf.len());
-            self.raw_body.read(&mut buf[..len]).await.map_err(|e| e.kind())?;
+            let max_len = usize::min(self.chunk_remaining as usize, buf.len());
+            let len = self.raw_body.read(&mut buf[..max_len]).await.map_err(|e| e.kind())?;
+            if len == 0 {
+                return Err(Error::ConnectionClosed);
+            }
+
             self.chunk_remaining -= len as u32;
 
             if self.chunk_remaining == 0 {

@@ -5,6 +5,8 @@
 #![doc = include_str!("../README.md")]
 use core::{num::ParseIntError, str::Utf8Error};
 
+use embedded_io::asynch::ReadExactError;
+
 mod fmt;
 
 pub mod client;
@@ -33,6 +35,8 @@ pub enum Error {
     AlreadySent,
     /// An invalid number of bytes were written to request body
     IncorrectBodyWritten,
+    /// The underlying connection was closed
+    ConnectionClosed,
 }
 
 impl embedded_io::Error for Error {
@@ -44,6 +48,15 @@ impl embedded_io::Error for Error {
 impl From<embedded_io::ErrorKind> for Error {
     fn from(e: embedded_io::ErrorKind) -> Error {
         Error::Network(e)
+    }
+}
+
+impl<E: embedded_io::Error> From<ReadExactError<E>> for Error {
+    fn from(value: ReadExactError<E>) -> Self {
+        match value {
+            ReadExactError::UnexpectedEof => Error::ConnectionClosed,
+            ReadExactError::Other(e) => Error::Network(e.kind()),
+        }
     }
 }
 
