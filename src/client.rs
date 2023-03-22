@@ -1,3 +1,5 @@
+/// Client using embedded-nal-async traits to establish connections and perform HTTP requests.
+///
 use crate::headers::ContentType;
 use crate::request::*;
 use crate::response::*;
@@ -6,12 +8,7 @@ use buffered_io::asynch::BufferedWrite;
 use embedded_io::asynch::{Read, Write};
 use embedded_io::Error as _;
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
-use embedded_tls::{Aes128GcmSha256, TlsConnection};
-/// Client using embedded-nal-async traits to establish connections and perform HTTP requests.
-///
 use nourl::{Url, UrlScheme};
-use rand_chacha::ChaCha8Rng;
-use rand_core::{RngCore, SeedableRng};
 
 /// An async HTTP client that can establish a TCP connection and perform
 /// HTTP requests.
@@ -22,10 +19,12 @@ where
 {
     client: &'a T,
     dns: &'a D,
+    #[cfg(feature = "embedded-tls")]
     tls: Option<TlsConfig<'a>>,
 }
 
 /// Type for TLS configuration of HTTP client.
+#[cfg(feature = "embedded-tls")]
 pub struct TlsConfig<'a> {
     seed: u64,
     read_buffer: &'a mut [u8],
@@ -34,6 +33,7 @@ pub struct TlsConfig<'a> {
 }
 
 /// Supported verification modes.
+#[cfg(feature = "embedded-tls")]
 pub enum TlsVerify<'a> {
     /// No verification of the remote host
     None,
@@ -41,6 +41,7 @@ pub enum TlsVerify<'a> {
     Psk { identity: &'a [u8], psk: &'a [u8] },
 }
 
+#[cfg(feature = "embedded-tls")]
 impl<'a> TlsConfig<'a> {
     pub fn new(seed: u64, read_buffer: &'a mut [u8], write_buffer: &'a mut [u8], verify: TlsVerify<'a>) -> Self {
         Self {
@@ -59,10 +60,16 @@ where
 {
     /// Create a new HTTP client for a given connection handle and a target host.
     pub fn new(client: &'a T, dns: &'a D) -> Self {
-        Self { client, dns, tls: None }
+        Self {
+            client,
+            dns,
+            #[cfg(feature = "embedded-tls")]
+            tls: None,
+        }
     }
 
     /// Create a new HTTP client for a given connection handle and a target host.
+    #[cfg(feature = "embedded-tls")]
     pub fn new_with_tls(client: &'a T, dns: &'a D, tls: TlsConfig<'a>) -> Self {
         Self {
             client,
@@ -71,10 +78,7 @@ where
         }
     }
 
-    async fn connect<'m>(
-        &'m mut self,
-        url: &Url<'m>,
-    ) -> Result<HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>, Error> {
+    async fn connect<'m>(&'m mut self, url: &Url<'m>) -> Result<HttpConnection<'m, T::Connection<'m>>, Error> {
         let host = url.host();
         let port = url.port_or_default();
 
@@ -91,16 +95,19 @@ where
             .map_err(|e| e.kind())?;
 
         if url.scheme() == UrlScheme::HTTPS {
+            #[cfg(feature = "embedded-tls")]
             if let Some(tls) = self.tls.as_mut() {
                 use embedded_tls::{TlsConfig, TlsContext};
+                use rand_chacha::ChaCha8Rng;
+                use rand_core::{RngCore, SeedableRng};
                 let mut rng = ChaCha8Rng::seed_from_u64(tls.seed);
                 tls.seed = rng.next_u64();
                 let mut config = TlsConfig::new().with_server_name(url.host());
                 if let TlsVerify::Psk { identity, psk } = tls.verify {
                     config = config.with_psk(psk, &[identity]);
                 }
-                let mut conn: TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256> =
-                    TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
+                let mut conn: embedded_tls::TlsConnection<'m, T::Connection<'m>, embedded_tls::Aes128GcmSha256> =
+                    embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
                 conn.open::<_, embedded_tls::NoVerify>(TlsContext::new(&config, &mut rng))
                     .await
                     .map_err(Error::Tls)?;
@@ -108,6 +115,8 @@ where
             } else {
                 Ok(HttpConnection::Plain(conn))
             }
+            #[cfg(not(feature = "embedded-tls"))]
+            Err(Error::InvalidUrl(nourl::Error::UnsupportedScheme))
         } else {
             Ok(HttpConnection::Plain(conn))
         }
@@ -118,14 +127,7 @@ where
         &'m mut self,
         method: Method,
         url: &'m str,
-    ) -> Result<
-        HttpRequestHandle<
-            'm,
-            HttpConnection<T::Connection<'m>, TlsConnection<'m, T::Connection<'m>, Aes128GcmSha256>>,
-            (),
-        >,
-        Error,
-    > {
+    ) -> Result<HttpRequestHandle<'m, HttpConnection<'m, T::Connection<'m>>, ()>, Error> {
         let url = Url::parse(url)?;
         let conn = self.connect(&url).await?;
         Ok(HttpRequestHandle {
@@ -139,13 +141,7 @@ where
     pub async fn resource<'res>(
         &'res mut self,
         resource_url: &'res str,
-    ) -> Result<
-        HttpResource<
-            'res,
-            HttpConnection<T::Connection<'res>, TlsConnection<'res, T::Connection<'res>, Aes128GcmSha256>>,
-        >,
-        Error,
-    > {
+    ) -> Result<HttpResource<'res, HttpConnection<'res, T::Connection<'res>>>, Error> {
         let resource_url = Url::parse(resource_url)?;
         let conn = self.connect(&resource_url).await?;
         Ok(HttpResource {
@@ -157,19 +153,20 @@ where
 }
 
 /// Represents a HTTP connection that may be encrypted or unencrypted.
-pub enum HttpConnection<T, S>
+pub enum HttpConnection<'m, T>
 where
     T: Read + Write,
-    S: Read + Write,
 {
     Plain(T),
-    Tls(S),
+    #[cfg(feature = "embedded-tls")]
+    Tls(embedded_tls::TlsConnection<'m, T, embedded_tls::Aes128GcmSha256>),
+    #[cfg(not(feature = "embedded-tls"))]
+    Tls(&'m mut T), // Variant is never actually created, but we need it to avoid "unused lifetime" warning
 }
 
-impl<T, S> HttpConnection<T, S>
+impl<'conn, T> HttpConnection<'conn, T>
 where
     T: Read + Write,
-    S: Read + Write,
 {
     /// Send a request on an established connection.
     ///
@@ -177,28 +174,26 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf, 'conn, B: RequestBody>(
+    pub async fn send<'buf, B: RequestBody>(
         &'conn mut self,
         request: Request<'conn, B>,
         rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, HttpConnection<T, S>>, Error> {
+    ) -> Result<Response<'buf, 'conn, HttpConnection<'conn, T>>, Error> {
         request.write(self).await?;
         Response::read(self, request.method, rx_buf).await
     }
 }
 
-impl<T, S> embedded_io::Io for HttpConnection<T, S>
+impl<T> embedded_io::Io for HttpConnection<'_, T>
 where
     T: Read + Write,
-    S: Read + Write,
 {
     type Error = embedded_io::ErrorKind;
 }
 
-impl<T, S> Read for HttpConnection<T, S>
+impl<T> Read for HttpConnection<'_, T>
 where
     T: Read + Write,
-    S: Read + Write,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
@@ -208,10 +203,9 @@ where
     }
 }
 
-impl<T, S> Write for HttpConnection<T, S>
+impl<T> Write for HttpConnection<'_, T>
 where
     T: Read + Write,
-    S: Read + Write,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
