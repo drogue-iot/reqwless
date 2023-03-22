@@ -42,5 +42,5 @@ rand = "0.8"
 
 [features]
 default = ["embedded-tls"]
-alloc = ["embedded-tls/alloc"]
-defmt = ["dep:defmt", "embedded-io/defmt", "embedded-tls/defmt", "nourl/defmt"]
+alloc = ["embedded-tls?/alloc"]
+defmt = ["dep:defmt", "embedded-io/defmt", "embedded-tls?/defmt", "nourl/defmt"]
