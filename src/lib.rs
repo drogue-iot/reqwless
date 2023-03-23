@@ -28,6 +28,7 @@ pub enum Error {
     /// An error parsing the URL
     InvalidUrl(nourl::Error),
     /// Tls Error
+    #[cfg(feature = "embedded-tls")]
     Tls(embedded_tls::TlsError),
     /// The provided buffer is too small
     BufferTooSmall,
@@ -60,6 +61,7 @@ impl<E: embedded_io::Error> From<ReadExactError<E>> for Error {
     }
 }
 
+#[cfg(feature = "embedded-tls")]
 impl From<embedded_tls::TlsError> for Error {
     fn from(e: embedded_tls::TlsError) -> Error {
         Error::Tls(e)

@@ -25,7 +25,7 @@ log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
 embedded-tls = { version = "0.12", default-features = false, features = [
     "async",
-] }
+], optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 nourl = "0.1.1"
 
@@ -41,5 +41,6 @@ log = "0.4"
 rand = "0.8"
 
 [features]
-alloc = ["embedded-tls/alloc"]
-defmt = ["dep:defmt", "embedded-io/defmt", "embedded-tls/defmt", "nourl/defmt"]
+default = ["embedded-tls"]
+alloc = ["embedded-tls?/alloc"]
+defmt = ["dep:defmt", "embedded-io/defmt", "embedded-tls?/defmt", "nourl/defmt"]

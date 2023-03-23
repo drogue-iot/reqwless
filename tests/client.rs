@@ -8,7 +8,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
 use rand::rngs::OsRng;
 use rand::RngCore;
-use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
+use reqwless::client::HttpClient;
 use reqwless::headers::ContentType;
 use reqwless::request::{Method, RequestBuilder};
 use reqwless::response::Status;
@@ -104,7 +104,10 @@ async fn test_resource_notls() {
 }
 
 #[tokio::test]
+#[cfg(feature = "embedded-tls")]
 async fn test_resource_rustls() {
+    use reqwless::client::{TlsConfig, TlsVerify};
+
     setup();
     let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
 
@@ -169,7 +172,10 @@ async fn test_resource_rustls() {
 
 #[ignore]
 #[tokio::test]
+#[cfg(feature = "embedded-tls")]
 async fn test_resource_drogue_cloud_sandbox() {
+    use reqwless::client::{TlsConfig, TlsVerify};
+
     setup();
     let mut tls_read_buf: [u8; 16384] = [0; 16384];
     let mut tls_write_buf: [u8; 16384] = [0; 16384];
