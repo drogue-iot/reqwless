@@ -403,6 +403,8 @@ impl<C: Read> Io for ChunkedBodyReader<C> {
 
 impl<C: Read> Read for ChunkedBodyReader<C> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        assert!(!buf.is_empty());
+
         if self.empty_chunk_received {
             return Ok(0);
         }
@@ -454,7 +456,7 @@ impl<C: Read> Read for ChunkedBodyReader<C> {
                         }
 
                         buf[..excess_body_read].copy_from_slice(&header_and_body[header.len()..]);
-
+                        self.chunk_remaining -= excess_body_read as u32;
                         return Ok(excess_body_read);
                     }
 
@@ -465,8 +467,16 @@ impl<C: Read> Read for ChunkedBodyReader<C> {
                     // At least three bytes were read and a \n was not found
                     // This means that the chunk length is at least double-digit hex
                     // which in turn means that it is impossible for another header to
-                    // be present within the 10 bytes header buffer
-                    max_read = 10;
+                    // be present within the 10 bytes header buffer.
+                    // 10 is the length of the max header "ffffffff\r\n".
+                    // For example, 10\r\nXXXXXXYYYYYYYYYY is more than 10 bytes
+                    // - 10\r\n is the header
+                    // - XXXXXX are the excess body 6 bytes that we may read
+                    // - YYYYYYYYYY are the remaining unread chunk bytes.
+                    // However, for reading these excess bytes into the actual chunk payload,
+                    // the user buffer must be large enough to actually contain the excess read bytes.
+                    // A \n was not found, and we can read that + buf.len().
+                    max_read = core::cmp::min(total_read + 1 + buf.len(), 10);
                 }
             }
         }
@@ -693,18 +703,41 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chunked_body_reader_can_read() {
-        let raw_body = "1\r\nX\r\n1\r\nY\r\n0\r\n\r\n".as_bytes();
+    async fn chunked_body_reader_can_read_with_large_buffer() {
+        let raw_body = "1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_bytes();
         let mut reader = ChunkedBodyReader {
             raw_body,
             chunk_remaining: 0,
             empty_chunk_received: false,
         };
 
-        let mut buf = [0; 2];
-        reader.read_exact(&mut buf).await.unwrap();
+        let mut body = [0; 17];
+        reader.read_exact(&mut body).await.unwrap();
 
+        assert_eq!(0, reader.read(&mut body).await.unwrap());
+        assert_eq!(0, reader.read(&mut body).await.unwrap());
+        assert_eq!(b"XYYYYYYYYYYYYYYYY", &body);
+    }
+
+    #[tokio::test]
+    async fn chunked_body_reader_can_read_with_tiny_buffer() {
+        let raw_body = "1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_bytes();
+        let mut reader = ChunkedBodyReader {
+            raw_body,
+            chunk_remaining: 0,
+            empty_chunk_received: false,
+        };
+
+        let mut body = Vec::<u8, 17>::new();
+        for _ in 0..17 {
+            let mut buf = [0; 1];
+            assert_eq!(1, reader.read(&mut buf).await.unwrap());
+            body.push(buf[0]).unwrap();
+        }
+
+        let mut buf = [0; 1];
         assert_eq!(0, reader.read(&mut buf).await.unwrap());
         assert_eq!(0, reader.read(&mut buf).await.unwrap());
+        assert_eq!(b"XYYYYYYYYYYYYYYYY", &body);
     }
 }
