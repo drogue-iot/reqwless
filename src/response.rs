@@ -266,7 +266,7 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
 
     /// Discard the entire body
     ///
-    /// Returns the number of discarded buffer bytes
+    /// Returns the number of discarded body bytes
     pub async fn discard(self) -> Result<usize, Error> {
         self.reader().discard().await
     }
