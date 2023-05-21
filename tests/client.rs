@@ -89,15 +89,17 @@ async fn test_resource_notls() {
     let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
     let mut rx_buf = [0; 4096];
     let mut resource = client.resource(&url).await.unwrap();
-    let response = resource
-        .post("/")
-        .body(b"PING".as_slice())
-        .content_type(ContentType::TextPlain)
-        .send(&mut rx_buf)
-        .await
-        .unwrap();
-    let body = response.body().read_to_end().await;
-    assert_eq!(body.unwrap(), b"PING");
+    for _ in 0..2 {
+        let response = resource
+            .post("/")
+            .body(b"PING".as_slice())
+            .content_type(ContentType::TextPlain)
+            .send(&mut rx_buf)
+            .await
+            .unwrap();
+        let body = response.body().read_to_end().await;
+        assert_eq!(body.unwrap(), b"PING");
+    }
 
     tx.send(()).unwrap();
     t.await.unwrap();
@@ -156,15 +158,17 @@ async fn test_resource_rustls() {
     );
     let mut rx_buf = [0; 4096];
     let mut resource = client.resource(&url).await.unwrap();
-    let response = resource
-        .post("/")
-        .body(b"PING".as_slice())
-        .content_type(ContentType::TextPlain)
-        .send(&mut rx_buf)
-        .await
-        .unwrap();
-    let body = response.body().read_to_end().await.unwrap();
-    assert_eq!(body, b"PING");
+    for _ in 0..2 {
+        let response = resource
+            .post("/")
+            .body(b"PING".as_slice())
+            .content_type(ContentType::TextPlain)
+            .send(&mut rx_buf)
+            .await
+            .unwrap();
+        let body = response.body().read_to_end().await;
+        assert_eq!(body.unwrap(), b"PING");
+    }
 
     tx.send(()).unwrap();
     t.await.unwrap();
@@ -190,10 +194,18 @@ async fn test_resource_drogue_cloud_sandbox() {
     // Also, if requests on embedded platforms fail with Error::Dns, then try to
     // enable the "alloc" feature on embedded-tls to enable RSA ciphers.
     let mut resource = client.resource("https://http.sandbox.drogue.cloud/v1").await.unwrap();
-    let response = resource.post("/telemetry").send(&mut rx_buf).await.unwrap();
-    assert_eq!(Status::Forbidden, response.status);
-    let body = response.body().read_to_end().await.unwrap();
-    assert!(!body.is_empty());
+
+    for _ in 0..2 {
+        let response = resource
+            .post("/testing")
+            .content_type(ContentType::TextPlain)
+            .body(b"PING".as_slice())
+            .send(&mut rx_buf)
+            .await
+            .unwrap();
+        assert_eq!(Status::Forbidden, response.status);
+        assert_eq!(76, response.body().discard().await.unwrap());
+    }
 }
 
 fn load_certs(filename: &std::path::PathBuf) -> Vec<rustls::Certificate> {
