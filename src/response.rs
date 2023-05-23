@@ -403,9 +403,7 @@ impl<C: Read> Io for ChunkedBodyReader<C> {
 
 impl<C: Read> Read for ChunkedBodyReader<C> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        assert!(!buf.is_empty());
-
-        if self.empty_chunk_received {
+        if buf.is_empty() || self.empty_chunk_received {
             return Ok(0);
         }
 
