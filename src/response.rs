@@ -349,16 +349,12 @@ where
 }
 
 /// Fixed length response body reader
-pub struct FixedLengthBodyReader<B: Read> {
-    raw_body: B,
+pub struct FixedLengthBodyReader<C: Read> {
+    raw_body: C,
     remaining: usize,
 }
 
-impl<C: Read> Io for FixedLengthBodyReader<C> {
-    type Error = Error;
-}
-
-impl<C: Read> Read for FixedLengthBodyReader<C> {
+impl<C: Read> FixedLengthBodyReader<C> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         if self.remaining == 0 {
             return Ok(0);
@@ -374,6 +370,19 @@ impl<C: Read> Read for FixedLengthBodyReader<C> {
     }
 }
 
+impl<C: Read> Io for FixedLengthBodyReader<C> {
+    type Error = Error;
+}
+
+impl<C: Read> Read for FixedLengthBodyReader<C> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        match self.read(buf).await {
+            Err(Error::ConnectionClosed) => Ok(0),
+            r => r,
+        }
+    }
+}
+
 /// Chunked response body reader
 pub struct ChunkedBodyReader<B>
 where
@@ -385,23 +394,6 @@ where
 }
 
 impl<C: Read> ChunkedBodyReader<C> {
-    async fn read_chunk_end(&mut self) -> Result<(), Error> {
-        // All chunks are terminated with a \r\n
-        let mut newline_buf = [0; 2];
-        self.raw_body.read_exact(&mut newline_buf).await?;
-
-        if newline_buf != [b'\r', b'\n'] {
-            return Err(Error::Codec);
-        }
-        Ok(())
-    }
-}
-
-impl<C: Read> Io for ChunkedBodyReader<C> {
-    type Error = Error;
-}
-
-impl<C: Read> Read for ChunkedBodyReader<C> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         if buf.is_empty() || self.empty_chunk_received {
             return Ok(0);
@@ -496,6 +488,30 @@ impl<C: Read> Read for ChunkedBodyReader<C> {
             }
 
             Ok(len)
+        }
+    }
+
+    async fn read_chunk_end(&mut self) -> Result<(), Error> {
+        // All chunks are terminated with a \r\n
+        let mut newline_buf = [0; 2];
+        self.raw_body.read_exact(&mut newline_buf).await?;
+
+        if newline_buf != [b'\r', b'\n'] {
+            return Err(Error::Codec);
+        }
+        Ok(())
+    }
+}
+
+impl<C: Read> Io for ChunkedBodyReader<C> {
+    type Error = Error;
+}
+
+impl<C: Read> Read for ChunkedBodyReader<C> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        match self.read(buf).await {
+            Err(Error::ConnectionClosed) => Ok(0),
+            r => r,
         }
     }
 }
