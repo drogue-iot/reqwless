@@ -2,7 +2,7 @@ use embedded_io::{asynch::Read, Error as _, Io};
 use heapless::Vec;
 
 use crate::concat::ConcatReader;
-use crate::headers::{ContentType, TransferEncoding};
+use crate::headers::{ContentType, TransferEncoding, KeepAlive};
 use crate::request::Method;
 use crate::Error;
 
@@ -24,6 +24,8 @@ where
     pub content_length: Option<usize>,
     /// The transfer encoding.
     pub transfer_encoding: heapless::Vec<TransferEncoding, 4>,
+    /// The keep-alive parameters.
+    pub keep_alive: Option<KeepAlive>,
     header_buf: &'buf mut [u8],
     header_len: usize,
     raw_body_read: usize,
@@ -82,6 +84,7 @@ where
         let mut content_type = None;
         let mut content_length = None;
         let mut transfer_encoding = Vec::new();
+        let mut keep_alive = None;
 
         for header in response.headers {
             if header.name.eq_ignore_ascii_case("content-type") {
@@ -97,6 +100,9 @@ where
                 transfer_encoding
                     .push(header.value.try_into().map_err(|_| Error::Codec)?)
                     .map_err(|_| Error::Codec)?;
+            }
+            else if header.name.eq_ignore_ascii_case("keep-alive") {
+                keep_alive.replace(header.value.try_into().map_err(|_| Error::Codec));
             }
         }
 
@@ -117,6 +123,7 @@ where
             content_type,
             content_length,
             transfer_encoding,
+            keep_alive,
             header_buf,
             header_len,
             raw_body_read,
