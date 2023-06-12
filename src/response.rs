@@ -2,7 +2,7 @@ use embedded_io::{asynch::Read, Error as _, Io};
 use heapless::Vec;
 
 use crate::concat::ConcatReader;
-use crate::headers::{ContentType, TransferEncoding, KeepAlive};
+use crate::headers::{ContentType, KeepAlive, TransferEncoding};
 use crate::request::Method;
 use crate::Error;
 
@@ -100,8 +100,7 @@ where
                 transfer_encoding
                     .push(header.value.try_into().map_err(|_| Error::Codec)?)
                     .map_err(|_| Error::Codec)?;
-            }
-            else if header.name.eq_ignore_ascii_case("keep-alive") {
+            } else if header.name.eq_ignore_ascii_case("keep-alive") {
                 keep_alive.replace(header.value.try_into().map_err(|_| Error::Codec));
             }
         }

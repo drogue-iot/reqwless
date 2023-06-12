@@ -86,7 +86,7 @@ impl<'a> TryFrom<&'a [u8]> for KeepAlive {
             if let (Some(key), Some(value)) = (splitted.next(), splitted.next()) {
                 match key {
                     _ if key.eq_ignore_ascii_case("timeout") => keep_alive.timeout = value.parse().ok(),
-                    _ if key.eq_ignore_ascii_case("max") =>  keep_alive.max = value.parse().ok(),
+                    _ if key.eq_ignore_ascii_case("max") => keep_alive.max = value.parse().ok(),
                     _ => (),
                 }
             }
