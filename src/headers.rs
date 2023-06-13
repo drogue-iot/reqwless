@@ -64,3 +64,33 @@ impl TransferEncoding {
         }
     }
 }
+
+/// Keep-alive header
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct KeepAlive {
+    timeout: Option<u8>,
+    max: Option<u8>,
+}
+
+impl<'a> TryFrom<&'a [u8]> for KeepAlive {
+    type Error = core::str::Utf8Error;
+
+    fn try_from(from: &'a [u8]) -> Result<Self, Self::Error> {
+        let mut keep_alive = KeepAlive {
+            timeout: None,
+            max: None,
+        };
+        for part in core::str::from_utf8(from)?.split(",") {
+            let mut splitted = part.split("=").map(|s| s.trim());
+            if let (Some(key), Some(value)) = (splitted.next(), splitted.next()) {
+                match key {
+                    _ if key.eq_ignore_ascii_case("timeout") => keep_alive.timeout = value.parse().ok(),
+                    _ if key.eq_ignore_ascii_case("max") => keep_alive.max = value.parse().ok(),
+                    _ => (),
+                }
+            }
+        }
+        Ok(keep_alive)
+    }
+}
