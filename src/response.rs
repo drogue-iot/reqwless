@@ -101,7 +101,7 @@ where
                     .push(header.value.try_into().map_err(|_| Error::Codec)?)
                     .map_err(|_| Error::Codec)?;
             } else if header.name.eq_ignore_ascii_case("keep-alive") {
-                keep_alive.replace(header.value.try_into().map_err(|_| Error::Codec));
+                keep_alive.replace(header.value.try_into().map_err(|_| Error::Codec)?);
             }
         }
 
