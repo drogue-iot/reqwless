@@ -5,7 +5,7 @@ use crate::request::*;
 use crate::response::*;
 use crate::Error;
 use buffered_io::asynch::BufferedWrite;
-use embedded_io::asynch::{Read, Write};
+use embedded_io_async::{Read, Write};
 use embedded_io::Error as _;
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
 use nourl::{Url, UrlScheme};
@@ -184,7 +184,7 @@ where
     }
 }
 
-impl<T> embedded_io::Io for HttpConnection<'_, T>
+impl<T> embedded_io::ErrorType for HttpConnection<'_, T>
 where
     T: Read + Write,
 {

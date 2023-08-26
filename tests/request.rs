@@ -1,4 +1,4 @@
-use embedded_io::adapters::FromTokio;
+use embedded_io_adapters::tokio_1::FromTokio;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
 use reqwless::request::{Method, RequestBuilder};

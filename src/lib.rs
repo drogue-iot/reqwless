@@ -5,7 +5,7 @@
 #![doc = include_str!("../README.md")]
 use core::{num::ParseIntError, str::Utf8Error};
 
-use embedded_io::asynch::ReadExactError;
+use embedded_io_async::ReadExactError;
 
 mod fmt;
 

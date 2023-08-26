@@ -3,8 +3,8 @@ use crate::headers::ContentType;
 use crate::Error;
 use core::fmt::Write as _;
 use core::mem::size_of;
-use embedded_io::asynch::Write;
-use embedded_io::{Error as _, Io};
+use embedded_io_async::Write;
+use embedded_io::{Error as _, ErrorType};
 use heapless::String;
 
 /// A read only HTTP request type
@@ -339,7 +339,7 @@ where
 
 pub struct FixedBodyWriter<'a, C: Write>(&'a mut C, usize);
 
-impl<C> Io for FixedBodyWriter<'_, C>
+impl<C> ErrorType for FixedBodyWriter<'_, C>
 where
     C: Write,
 {
@@ -369,7 +369,7 @@ where
 
 pub struct ChunkedBodyWriter<'a, C: Write>(&'a mut C, usize);
 
-impl<C> Io for ChunkedBodyWriter<'_, C>
+impl<C> ErrorType for ChunkedBodyWriter<'_, C>
 where
     C: Write,
 {

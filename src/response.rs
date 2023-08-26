@@ -1,4 +1,5 @@
-use embedded_io::{asynch::Read, Error as _, Io};
+use embedded_io_async::Read;
+use embedded_io::{Error as _, ErrorType};
 use heapless::Vec;
 
 use crate::concat::ConcatReader;
@@ -333,7 +334,7 @@ where
     }
 }
 
-impl<B> embedded_io::Io for BodyReader<B>
+impl<B> embedded_io::ErrorType for BodyReader<B>
 where
     B: Read,
 {
@@ -360,7 +361,7 @@ pub struct FixedLengthBodyReader<B: Read> {
     remaining: usize,
 }
 
-impl<C: Read> Io for FixedLengthBodyReader<C> {
+impl<C: Read> ErrorType for FixedLengthBodyReader<C> {
     type Error = Error;
 }
 
@@ -403,7 +404,7 @@ impl<C: Read> ChunkedBodyReader<C> {
     }
 }
 
-impl<C: Read> Io for ChunkedBodyReader<C> {
+impl<C: Read> ErrorType for ChunkedBodyReader<C> {
     type Error = Error;
 }
 
