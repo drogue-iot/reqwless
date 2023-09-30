@@ -3,8 +3,8 @@ use crate::headers::ContentType;
 use crate::Error;
 use core::fmt::Write as _;
 use core::mem::size_of;
-use embedded_io::asynch::Write;
-use embedded_io::{Error as _, Io};
+use embedded_io::{Error as _, ErrorType};
+use embedded_io_async::{Write, WriteAllError};
 use heapless::String;
 
 /// A read only HTTP request type
@@ -169,7 +169,7 @@ where
                 Some(len) => {
                     trace!("Writing not-chunked body");
                     let mut writer = FixedBodyWriter(c, 0);
-                    body.write(&mut writer).await.map_err(|e| e.kind())?;
+                    body.write(&mut writer).await?;
 
                     if writer.1 != len {
                         return Err(Error::IncorrectBodyWritten);
@@ -178,7 +178,7 @@ where
                 None => {
                     trace!("Writing chunked body");
                     let mut writer = ChunkedBodyWriter(c, 0);
-                    body.write(&mut writer).await.map_err(|e| e.kind())?;
+                    body.write(&mut writer).await?;
 
                     write_str(c, "0\r\n\r\n").await?;
                 }
@@ -273,7 +273,7 @@ impl Method {
 }
 
 async fn write_str<C: Write>(c: &mut C, data: &str) -> Result<(), Error> {
-    c.write_all(data.as_bytes()).await.map_err(|e| e.kind())?;
+    c.write_all(data.as_bytes()).await?;
     Ok(())
 }
 
@@ -297,7 +297,7 @@ pub trait RequestBody {
     }
 
     /// Write the body to the provided writer
-    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error>;
+    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), WriteAllError<W::Error>>;
 }
 
 impl RequestBody for () {
@@ -305,7 +305,7 @@ impl RequestBody for () {
         None
     }
 
-    async fn write<W: Write>(&self, _writer: &mut W) -> Result<(), W::Error> {
+    async fn write<W: Write>(&self, _writer: &mut W) -> Result<(), WriteAllError<W::Error>> {
         Ok(())
     }
 }
@@ -315,7 +315,7 @@ impl RequestBody for &[u8] {
         Some(<[u8]>::len(self))
     }
 
-    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
+    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), WriteAllError<W::Error>> {
         writer.write_all(self).await
     }
 }
@@ -328,7 +328,7 @@ where
         self.as_ref().map(|inner| inner.len()).unwrap_or_default()
     }
 
-    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
+    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), WriteAllError<W::Error>> {
         if let Some(inner) = self.as_ref() {
             inner.write(writer).await
         } else {
@@ -339,7 +339,7 @@ where
 
 pub struct FixedBodyWriter<'a, C: Write>(&'a mut C, usize);
 
-impl<C> Io for FixedBodyWriter<'_, C>
+impl<C> ErrorType for FixedBodyWriter<'_, C>
 where
     C: Write,
 {
@@ -356,7 +356,7 @@ where
         Ok(written)
     }
 
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), WriteAllError<Self::Error>> {
         self.0.write_all(buf).await?;
         self.1 += buf.len();
         Ok(())
@@ -369,11 +369,18 @@ where
 
 pub struct ChunkedBodyWriter<'a, C: Write>(&'a mut C, usize);
 
-impl<C> Io for ChunkedBodyWriter<'_, C>
+impl<C> ErrorType for ChunkedBodyWriter<'_, C>
 where
     C: Write,
 {
-    type Error = C::Error;
+    type Error = embedded_io::ErrorKind;
+}
+
+fn to_errorkind<E: embedded_io::Error>(e: WriteAllError<E>) -> embedded_io::ErrorKind {
+    match e {
+        WriteAllError::WriteZero => embedded_io::ErrorKind::Other,
+        WriteAllError::Other(e) => e.kind(),
+    }
 }
 
 impl<C> Write for ChunkedBodyWriter<'_, C>
@@ -381,31 +388,31 @@ where
     C: Write,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.write_all(buf).await?;
+        self.write_all(buf).await.map_err(to_errorkind)?;
         Ok(buf.len())
     }
 
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), WriteAllError<Self::Error>> {
         // Write chunk header
         let len = buf.len();
         let mut hex = [0; 2 * size_of::<usize>()];
         hex::encode_to_slice(len.to_be_bytes(), &mut hex).unwrap();
         let leading_zeros = hex.iter().position(|x| *x != b'0').unwrap_or_default();
         let (_, hex) = hex.split_at(leading_zeros);
-        self.0.write_all(hex).await?;
-        self.0.write_all(b"\r\n").await?;
+        self.0.write_all(hex).await.map_err(to_errorkind)?;
+        self.0.write_all(b"\r\n").await.map_err(to_errorkind)?;
 
         // Write chunk
-        self.0.write_all(buf).await?;
+        self.0.write_all(buf).await.map_err(to_errorkind)?;
         self.1 += len;
 
         // Write newline
-        self.0.write_all(b"\r\n").await?;
+        self.0.write_all(b"\r\n").await.map_err(to_errorkind)?;
         Ok(())
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.0.flush().await
+        self.0.flush().await.map_err(|e| e.kind())
     }
 }
 
@@ -415,7 +422,7 @@ mod tests {
 
     #[tokio::test]
     async fn basic_auth() {
-        let mut buffer = Vec::new();
+        let mut buffer: Vec<u8> = Vec::new();
         Request::new(Method::GET, "/")
             .basic_auth("username", "password")
             .build()
@@ -462,7 +469,7 @@ mod tests {
             None // Unknown length: triggers chunked body
         }
 
-        async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
+        async fn write<W: Write>(&self, writer: &mut W) -> Result<(), WriteAllError<W::Error>> {
             writer.write_all(self.0).await
         }
     }

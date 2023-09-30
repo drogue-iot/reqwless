@@ -5,8 +5,9 @@ use crate::request::*;
 use crate::response::*;
 use crate::Error;
 use buffered_io::asynch::BufferedWrite;
-use embedded_io::asynch::{Read, Write};
 use embedded_io::Error as _;
+use embedded_io::ErrorType;
+use embedded_io_async::{Read, Write};
 use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
 use nourl::{Url, UrlScheme};
 
@@ -184,7 +185,7 @@ where
     }
 }
 
-impl<T> embedded_io::Io for HttpConnection<'_, T>
+impl<T> ErrorType for HttpConnection<'_, T>
 where
     T: Read + Write,
 {
@@ -242,9 +243,12 @@ where
     /// Turn the request into a buffered request
     ///
     /// This is most likely only relevant for non-tls endpoints, as `embedded-tls` buffers internally.
-    pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpRequestHandle<'m, BufferedWrite<'buf, C>, B> {
+    pub fn into_buffered<'buf>(
+        self,
+        tx_buf: &'buf mut [u8],
+    ) -> HttpRequestHandle<'m, BufferedWrite<'buf, buffered_io_adapter::ConnErrorAdapter<C>>, B> {
         HttpRequestHandle {
-            conn: BufferedWrite::new(self.conn, tx_buf),
+            conn: BufferedWrite::new(buffered_io_adapter::ConnErrorAdapter(self.conn), tx_buf),
             request: self.request,
         }
     }
@@ -324,9 +328,12 @@ where
     /// Turn the resource into a buffered resource
     ///
     /// This is most likely only relevant for non-tls endpoints, as `embedded-tls` buffers internally.
-    pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpResource<'res, BufferedWrite<'buf, C>> {
+    pub fn into_buffered<'buf>(
+        self,
+        tx_buf: &'buf mut [u8],
+    ) -> HttpResource<'res, BufferedWrite<'buf, buffered_io_adapter::ConnErrorAdapter<C>>> {
         HttpResource {
-            conn: BufferedWrite::new(self.conn, tx_buf),
+            conn: BufferedWrite::new(buffered_io_adapter::ConnErrorAdapter(self.conn), tx_buf),
             host: self.host,
             base_path: self.base_path,
         }
@@ -476,5 +483,78 @@ where
 
     fn build(self) -> Request<'m, B> {
         self.request.build()
+    }
+}
+
+mod buffered_io_adapter {
+    use embedded_io::{Error as _, ErrorType, ReadExactError, WriteAllError};
+    use embedded_io_async::{Read, Write};
+
+    pub struct Error(embedded_io::ErrorKind);
+
+    impl core::fmt::Debug for Error {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl embedded_io_async::Error for Error {
+        fn kind(&self) -> embedded_io::ErrorKind {
+            self.0
+        }
+    }
+
+    impl<T> From<WriteAllError<T>> for Error
+    where
+        T: embedded_io::Error,
+    {
+        fn from(value: WriteAllError<T>) -> Self {
+            match value {
+                WriteAllError::WriteZero => Self(embedded_io::ErrorKind::Other),
+                WriteAllError::Other(e) => Self(e.kind()),
+            }
+        }
+    }
+
+    pub struct ConnErrorAdapter<C>(pub C);
+
+    impl<C> ErrorType for ConnErrorAdapter<C> {
+        type Error = Error;
+    }
+
+    impl<C> Write for ConnErrorAdapter<C>
+    where
+        C: Write,
+    {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.0.write(buf).await.map_err(|e| Error(e.kind()))
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.0.flush().await.map_err(|e| Error(e.kind()))
+        }
+
+        async fn write_all(&mut self, buf: &[u8]) -> Result<(), embedded_io::WriteAllError<Self::Error>> {
+            self.0.write_all(buf).await.map_err(|e| match e {
+                WriteAllError::WriteZero => WriteAllError::WriteZero,
+                WriteAllError::Other(e) => WriteAllError::Other(Error(e.kind())),
+            })
+        }
+    }
+
+    impl<C> Read for ConnErrorAdapter<C>
+    where
+        C: Read,
+    {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.0.read(buf).await.map_err(|e| Error(e.kind()))
+        }
+
+        async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ReadExactError<Self::Error>> {
+            self.0.read_exact(buf).await.map_err(|e| match e {
+                ReadExactError::UnexpectedEof => ReadExactError::UnexpectedEof,
+                ReadExactError::Other(e) => ReadExactError::Other(Error(e.kind())),
+            })
+        }
     }
 }
