@@ -1,7 +1,7 @@
 #![feature(async_fn_in_trait)]
 #![feature(impl_trait_projections)]
 #![allow(incomplete_features)]
-use embedded_io::adapters::FromTokio;
+use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_nal_async::{AddrType, IpAddr, Ipv4Addr};
 use hyper::server::conn::Http;
 use hyper::service::{make_service_fn, service_fn};

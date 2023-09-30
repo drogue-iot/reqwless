@@ -1,4 +1,5 @@
-use embedded_io::{asynch::Read, ErrorKind, Io};
+use embedded_io::{ErrorKind, ErrorType};
+use embedded_io_async::Read;
 
 pub struct ConcatReader<A, B>
 where
@@ -59,7 +60,7 @@ where
     }
 }
 
-impl<A, B> Io for ConcatReader<A, B>
+impl<A, B> ErrorType for ConcatReader<A, B>
 where
     A: Read,
     B: Read,

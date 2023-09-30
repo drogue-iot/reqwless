@@ -5,7 +5,7 @@
 #![doc = include_str!("../README.md")]
 use core::{num::ParseIntError, str::Utf8Error};
 
-use embedded_io::asynch::ReadExactError;
+use embedded_io_async::{ReadExactError, WriteAllError};
 
 mod fmt;
 
@@ -57,6 +57,18 @@ impl<E: embedded_io::Error> From<ReadExactError<E>> for Error {
         match value {
             ReadExactError::UnexpectedEof => Error::ConnectionClosed,
             ReadExactError::Other(e) => Error::Network(e.kind()),
+        }
+    }
+}
+
+impl<E> From<WriteAllError<E>> for Error
+where
+    E: embedded_io::Error,
+{
+    fn from(value: WriteAllError<E>) -> Self {
+        match value {
+            WriteAllError::WriteZero => Error::Network(embedded_io::ErrorKind::Other),
+            WriteAllError::Other(e) => Error::Network(e.kind()),
         }
     }
 }
