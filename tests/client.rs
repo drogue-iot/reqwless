@@ -1,5 +1,4 @@
 #![feature(async_fn_in_trait)]
-#![feature(impl_trait_projections)]
 #![allow(incomplete_features)]
 use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_nal_async::{AddrType, IpAddr, Ipv4Addr};
@@ -286,7 +285,10 @@ impl embedded_nal_async::TcpConnect for TokioTcp {
     type Error = std::io::Error;
     type Connection<'m> = FromTokio<TcpStream>;
 
-    async fn connect<'m>(&self, remote: embedded_nal_async::SocketAddr) -> Result<Self::Connection<'m>, Self::Error> {
+    async fn connect<'m>(&'m self, remote: embedded_nal_async::SocketAddr) -> Result<Self::Connection<'m>, Self::Error>
+    where
+        Self: 'm,
+    {
         let ip = match remote {
             embedded_nal_async::SocketAddr::V4(a) => a.ip().octets().into(),
             embedded_nal_async::SocketAddr::V6(a) => a.ip().octets().into(),

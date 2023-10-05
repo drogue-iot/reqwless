@@ -67,7 +67,6 @@ where
             if parse_status.is_complete() {
                 header_len = parse_status.unwrap();
                 break;
-            } else {
             }
         }
 
