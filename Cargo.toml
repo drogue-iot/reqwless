@@ -1,6 +1,6 @@
 [package]
 name = "reqwless"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 resolver = "2"
 description = "HTTP client for embedded devices"
@@ -13,10 +13,10 @@ keywords = ["embedded", "async", "http", "no_std"]
 exclude = [".github"]
 
 [dependencies]
-buffered-io = { version = "0.3.0", features = ["async"] }
-embedded-io = { version = "0.5.0" }
-embedded-io-async = { version = "0.5.0" }
-embedded-nal-async = "0.5.0"
+buffered-io = { version = "0.4.0", features = ["async"] }
+embedded-io = { version = "0.6" }
+embedded-io-async = { version = "0.6" }
+embedded-nal-async = "0.6.0"
 httparse = { version = "1.8.0", default-features = false }
 heapless = "0.7"
 hex = { version = "0.4", default-features = false }
@@ -24,7 +24,7 @@ base64 = { version = "0.21.0", default-features = false }
 rand_core = { version = "0.6", default-features = true }
 log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
-embedded-tls = { version = "0.15", default-features = false, features = [
+embedded-tls = { version = "0.16", default-features = false, features = [
     "async",
 ], optional = true }
 rand_chacha = { version = "0.3", default-features = false }
@@ -35,8 +35,8 @@ hyper = { version = "0.14.23", features = ["full"] }
 tokio = { version = "1.21.2", features = ["full"] }
 tokio-rustls = { version = "0.23.4" }
 futures-util = { version = "0.3" }
-embedded-io-async = { version = "0.5", features = ["std"] }
-embedded-io-adapters = { version = "0.5", features = ["std", "tokio-1"] }
+embedded-io-async = { version = "0.6", features = ["std"] }
+embedded-io-adapters = { version = "0.6", features = ["std", "tokio-1"] }
 rustls-pemfile = "1.0"
 env_logger = "0.10"
 log = "0.4"

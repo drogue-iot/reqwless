@@ -154,6 +154,7 @@ where
 }
 
 /// Represents a HTTP connection that may be encrypted or unencrypted.
+#[allow(clippy::large_enum_variant)]
 pub enum HttpConnection<'m, T>
 where
     T: Read + Write,
@@ -487,7 +488,7 @@ where
 }
 
 mod buffered_io_adapter {
-    use embedded_io::{Error as _, ErrorType, ReadExactError, WriteAllError};
+    use embedded_io::{Error as _, ErrorType, ReadExactError};
     use embedded_io_async::{Read, Write};
 
     pub struct Error(embedded_io::ErrorKind);
@@ -501,18 +502,6 @@ mod buffered_io_adapter {
     impl embedded_io_async::Error for Error {
         fn kind(&self) -> embedded_io::ErrorKind {
             self.0
-        }
-    }
-
-    impl<T> From<WriteAllError<T>> for Error
-    where
-        T: embedded_io::Error,
-    {
-        fn from(value: WriteAllError<T>) -> Self {
-            match value {
-                WriteAllError::WriteZero => Self(embedded_io::ErrorKind::Other),
-                WriteAllError::Other(e) => Self(e.kind()),
-            }
         }
     }
 
@@ -534,11 +523,8 @@ mod buffered_io_adapter {
             self.0.flush().await.map_err(|e| Error(e.kind()))
         }
 
-        async fn write_all(&mut self, buf: &[u8]) -> Result<(), embedded_io::WriteAllError<Self::Error>> {
-            self.0.write_all(buf).await.map_err(|e| match e {
-                WriteAllError::WriteZero => WriteAllError::WriteZero,
-                WriteAllError::Other(e) => WriteAllError::Other(Error(e.kind())),
-            })
+        async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+            self.0.write_all(buf).await.map_err(|e| Error(e.kind()))
         }
     }
 
