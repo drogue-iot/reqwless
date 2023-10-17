@@ -234,7 +234,7 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
     /// This requires that this original buffer is large enough to contain the entire body.
     ///
     /// This is not valid for chunked responses as it requires that the body bytes over-read
-    /// while parsing the http response header would be availble for the body reader.
+    /// while parsing the http response header would be available for the body reader.
     /// For this case, of if the original buffer is not large enough, use
     /// [`BodyReader::read_to_end()`] instead from the reader returned by [`ResponseBody::reader()`].
     pub async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
