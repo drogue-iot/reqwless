@@ -151,18 +151,14 @@ where
             ReaderHint::ToEnd
         };
 
-        // Move the body part of the bytes in the header buffer to the beginning of the buffer
-        let header_buf = self.header_buf;
-        for i in 0..self.raw_body_read {
-            header_buf[i] = header_buf[self.header_len + i];
-        }
-        // From now on, the header buffer is now the body buffer as all header bytes have been overwritten
-        let body_buf = header_buf;
+        // Move the body part of the bytes in the header buffer to the beginning of the buffer.
+        self.header_buf
+            .copy_within(self.header_len..self.header_len + self.raw_body_read, 0);
 
         ResponseBody {
             conn: self.conn,
             reader_hint,
-            body_buf,
+            body_buf: self.header_buf,
             raw_body_read: self.raw_body_read,
         }
     }
