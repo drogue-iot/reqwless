@@ -11,11 +11,21 @@ on:
       - "v*"
   # Also on PRs, just be careful not to publish anything
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
+# Cancel any currently running workflows from the same PR, branch, or
+# tag when a new workflow is triggered.
+#
+# https://stackoverflow.com/a/66336834
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
 
 jobs:
   ci:
     runs-on: ubuntu-20.04
+    if: github.event.pull_request.draft == false
+
     steps:
       - uses: actions/checkout@v3
 
