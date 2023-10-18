@@ -2,8 +2,8 @@ use embedded_io::{Error as _, ErrorType};
 use embedded_io_async::Read;
 use heapless::Vec;
 
-use crate::concat::ConcatReader;
 use crate::headers::{ContentType, KeepAlive, TransferEncoding};
+use crate::reader::BufferingReader;
 use crate::request::Method;
 use crate::Error;
 
@@ -206,8 +206,8 @@ impl<'buf, 'conn, C> ResponseBody<'buf, 'conn, C>
 where
     C: Read,
 {
-    pub fn reader(self) -> BodyReader<ConcatReader<&'buf [u8], &'conn mut C>> {
-        let raw_body = ConcatReader::new(&self.body_buf[..self.raw_body_read], self.conn);
+    pub fn reader(self) -> BodyReader<BufferingReader<'buf, &'conn mut C>> {
+        let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
 
         match self.reader_hint {
             ReaderHint::Empty => BodyReader::Empty,
@@ -225,7 +225,11 @@ where
     }
 }
 
-impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
+impl<'buf, 'conn, C> ResponseBody<'buf, 'conn, C>
+where
+    C: Read,
+    BufferingReader<'buf, &'conn mut C>: Read,
+{
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
     ///
@@ -275,10 +279,7 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
 }
 
 /// A body reader
-pub enum BodyReader<B>
-where
-    B: Read,
-{
+pub enum BodyReader<B> {
     Empty,
     FixedLength(FixedLengthBodyReader<B>),
     Chunked(ChunkedBodyReader<B>),
@@ -351,7 +352,7 @@ where
 }
 
 /// Fixed length response body reader
-pub struct FixedLengthBodyReader<B: Read> {
+pub struct FixedLengthBodyReader<B> {
     raw_body: B,
     remaining: usize,
 }
@@ -377,10 +378,7 @@ impl<C: Read> Read for FixedLengthBodyReader<C> {
 }
 
 /// Chunked response body reader
-pub struct ChunkedBodyReader<B>
-where
-    B: Read,
-{
+pub struct ChunkedBodyReader<B> {
     raw_body: B,
     chunk_remaining: u32,
     empty_chunk_received: bool,
@@ -597,11 +595,53 @@ impl From<u16> for Status {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use embedded_io::ErrorType;
+    use embedded_io_async::{Read, Write};
+
+    use crate::{
+        client::HttpConnection,
+        request::Method,
+        response::{ChunkedBodyReader, Response},
+    };
+
+    struct Buffer {
+        b: Vec<u8>,
+    }
+    impl Buffer {
+        fn from(b: &[u8]) -> Self {
+            Self { b: b.to_vec() }
+        }
+    }
+
+    impl ErrorType for Buffer {
+        type Error = embedded_io::ErrorKind;
+    }
+
+    impl Read for Buffer {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            let len = buf.len().min(self.b.len());
+            buf[..len].copy_from_slice(&self.b[..len]);
+            self.b.drain(..len);
+            Ok(len)
+        }
+    }
+
+    impl Write for Buffer {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.b.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn can_read_with_content_length_with_same_buffer() {
-        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
+        let mut response = HttpConnection::Plain(Buffer::from(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD",
+        ));
         let mut response_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut response_buf)
             .await
@@ -614,7 +654,9 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_with_content_length_to_other_buffer() {
-        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
+        let mut response = HttpConnection::Plain(Buffer::from(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD",
+        ));
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -628,7 +670,9 @@ mod tests {
 
     #[tokio::test]
     async fn can_discard_with_content_length() {
-        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
+        let mut response = HttpConnection::Plain(Buffer::from(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD",
+        ));
         let mut response_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut response_buf)
             .await
@@ -639,8 +683,9 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_with_chunked_encoding() {
-        let mut response =
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut response = HttpConnection::Plain(Buffer::from(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n",
+        ));
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -654,8 +699,9 @@ mod tests {
 
     #[tokio::test]
     async fn can_discard_with_chunked_encoding() {
-        let mut response =
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut response = HttpConnection::Plain(Buffer::from(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n",
+        ));
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -666,7 +712,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_to_end_of_connection_with_same_buffer() {
-        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
+        let mut response = HttpConnection::Plain(Buffer::from(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD"));
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -679,7 +725,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_to_end_of_connection_to_other_buffer() {
-        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
+        let mut response = HttpConnection::Plain(Buffer::from(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD"));
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -693,7 +739,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_discard_to_end_of_connection() {
-        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
+        let mut response = HttpConnection::Plain(Buffer::from(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD"));
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -704,7 +750,7 @@ mod tests {
 
     #[tokio::test]
     async fn chunked_body_reader_can_read_with_large_buffer() {
-        let raw_body = "1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_bytes();
+        let raw_body = HttpConnection::Plain(Buffer::from(b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n"));
         let mut reader = ChunkedBodyReader {
             raw_body,
             chunk_remaining: 0,
@@ -721,14 +767,14 @@ mod tests {
 
     #[tokio::test]
     async fn chunked_body_reader_can_read_with_tiny_buffer() {
-        let raw_body = "1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_bytes();
+        let raw_body = HttpConnection::Plain(Buffer::from(b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n"));
         let mut reader = ChunkedBodyReader {
             raw_body,
             chunk_remaining: 0,
             empty_chunk_received: false,
         };
 
-        let mut body = Vec::<u8, 17>::new();
+        let mut body = heapless::Vec::<u8, 17>::new();
         for _ in 0..17 {
             let mut buf = [0; 1];
             assert_eq!(1, reader.read(&mut buf).await.unwrap());
