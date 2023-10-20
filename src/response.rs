@@ -568,17 +568,9 @@ where
         }
         Ok(())
     }
-}
 
-impl<C> ErrorType for ChunkedBodyReader<C> {
-    type Error = Error;
-}
-
-impl<C> Read for ChunkedBodyReader<C>
-where
-    C: BufRead + Read,
-{
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    /// Handles chunk boundary and returns the number of bytes in the current (or new) chunk.
+    async fn handle_chunk_boundary(&mut self) -> Result<usize, Error> {
         match self.chunk_remaining {
             ChunkState::NoChunk => self.read_next_chunk_length().await?,
 
@@ -593,7 +585,20 @@ where
             ChunkState::Empty => return Ok(0),
         }
 
-        let remaining = self.chunk_remaining.len();
+        Ok(self.chunk_remaining.len())
+    }
+}
+
+impl<C> ErrorType for ChunkedBodyReader<C> {
+    type Error = Error;
+}
+
+impl<C> Read for ChunkedBodyReader<C>
+where
+    C: BufRead + Read,
+{
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        let remaining = self.handle_chunk_boundary().await?;
         let max_len = buf.len().min(remaining);
 
         let len = self
@@ -613,28 +618,12 @@ where
     C: BufRead + Read,
 {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-        match self.chunk_remaining {
-            ChunkState::NoChunk => self.read_next_chunk_length().await?,
-
-            ChunkState::NotEmpty(0) => {
-                // The current chunk is currently empty, advance into a new chunk...
-                self.read_chunk_end().await?;
-                self.read_next_chunk_length().await?;
-            }
-
-            ChunkState::NotEmpty(_) => {}
-
-            ChunkState::Empty => return Ok(&[]),
-        }
-
-        let remaining = self.chunk_remaining.len();
+        let remaining = self.handle_chunk_boundary().await?;
 
         let buf = self.raw_body.fill_buf().await.map_err(|e| Error::Network(e.kind()))?;
-        if buf.is_empty() {
-            return Err(Error::ConnectionClosed);
-        }
 
         let len = buf.len().min(remaining);
+
         Ok(&buf[..len])
     }
 
