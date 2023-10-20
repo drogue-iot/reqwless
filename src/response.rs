@@ -1,20 +1,19 @@
 use embedded_io::{Error as _, ErrorType};
-use embedded_io_async::{BufRead, Read};
+use embedded_io_async::{BufRead, Read, Write};
 use heapless::Vec;
 
+use crate::client::HttpConnection;
 use crate::headers::{ContentType, KeepAlive, TransferEncoding};
 use crate::reader::BufferingReader;
 use crate::request::Method;
 use crate::Error;
 
 /// Type representing a parsed HTTP response.
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Response<'buf, 'conn, C>
 where
-    C: Read,
+    C: Read + Write,
 {
-    conn: &'conn mut C,
+    conn: &'buf mut HttpConnection<'conn, C>,
     /// The method used to create the response.
     method: Method,
     /// The HTTP response status code.
@@ -32,13 +31,54 @@ where
     raw_body_read: usize,
 }
 
+#[cfg(feature = "defmt")]
+impl<C> defmt::Format for Response<'_, '_, C>
+where
+    C: Read + Write,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "Response {{ method = {}, status = {}, content_type = {}, content_length = {}, transfer_encoding = {}, keep_alive = {}, header_buf = {:?}, header_len = {}, raw_body_read = {} }}",
+            self.method,
+            self.status,
+            self.content_type,
+            self.content_length,
+            self.transfer_encoding,
+            self.keep_alive,
+            self.header_buf,
+            self.header_len,
+            self.raw_body_read,
+        )
+    }
+}
+
+impl<C> core::fmt::Debug for Response<'_, '_, C>
+where
+    C: Read + Write,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Response")
+            .field("method", &self.method)
+            .field("status", &self.status)
+            .field("content_type", &self.content_type)
+            .field("content_length", &self.content_length)
+            .field("transfer_encoding", &self.transfer_encoding)
+            .field("keep_alive", &self.keep_alive)
+            .field("header_buf", &self.header_buf)
+            .field("header_len", &self.header_len)
+            .field("raw_body_read", &self.raw_body_read)
+            .finish()
+    }
+}
+
 impl<'buf, 'conn, C> Response<'buf, 'conn, C>
 where
-    C: Read,
+    C: Read + Write,
 {
     // Read at least the headers from the connection.
     pub async fn read(
-        conn: &'conn mut C,
+        conn: &'buf mut HttpConnection<'conn, C>,
         method: Method,
         header_buf: &'buf mut [u8],
     ) -> Result<Response<'buf, 'conn, C>, Error> {
@@ -185,9 +225,9 @@ impl<'a> Iterator for HeaderIterator<'a> {
 /// in `body_buf`, and a reader to be used for reading the remaining body.
 pub struct ResponseBody<'buf, 'conn, C>
 where
-    C: Read,
+    C: Read + Write,
 {
-    conn: &'conn mut C,
+    conn: &'buf mut HttpConnection<'conn, C>,
     reader_hint: ReaderHint,
     /// The number of raw bytes read from the body and available in the beginning of `body_buf`.
     raw_body_read: usize,
@@ -204,9 +244,9 @@ enum ReaderHint {
 
 impl<'buf, 'conn, C> ResponseBody<'buf, 'conn, C>
 where
-    C: Read,
+    C: Read + Write,
 {
-    pub fn reader(self) -> BodyReader<BufferingReader<'buf, &'conn mut C>> {
+    pub fn reader(self) -> BodyReader<BufferingReader<'buf, 'conn, C>> {
         let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
 
         match self.reader_hint {
@@ -226,8 +266,7 @@ where
 
 impl<'buf, 'conn, C> ResponseBody<'buf, 'conn, C>
 where
-    C: Read,
-    BufferingReader<'buf, &'conn mut C>: BufRead + Read,
+    C: Read + Write,
 {
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.

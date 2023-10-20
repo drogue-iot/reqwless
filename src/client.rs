@@ -79,7 +79,10 @@ where
         }
     }
 
-    async fn connect<'m>(&'m mut self, url: &Url<'m>) -> Result<HttpConnection<'m, T::Connection<'m>>, Error> {
+    async fn connect<'conn>(
+        &'conn mut self,
+        url: &Url<'_>,
+    ) -> Result<HttpConnection<'conn, T::Connection<'conn>>, Error> {
         let host = url.host();
         let port = url.port_or_default();
 
@@ -107,7 +110,7 @@ where
                 if let TlsVerify::Psk { identity, psk } = tls.verify {
                     config = config.with_psk(psk, &[identity]);
                 }
-                let mut conn: embedded_tls::TlsConnection<'m, T::Connection<'m>, embedded_tls::Aes128GcmSha256> =
+                let mut conn: embedded_tls::TlsConnection<'conn, T::Connection<'conn>, embedded_tls::Aes128GcmSha256> =
                     embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
                 conn.open::<_, embedded_tls::NoVerify>(TlsContext::new(&config, &mut rng))
                     .await?;
@@ -132,11 +135,11 @@ where
     }
 
     /// Create a single http request.
-    pub async fn request<'m>(
-        &'m mut self,
+    pub async fn request<'conn>(
+        &'conn mut self,
         method: Method,
-        url: &'m str,
-    ) -> Result<HttpRequestHandle<'m, T::Connection<'m>, ()>, Error> {
+        url: &'conn str,
+    ) -> Result<HttpRequestHandle<'conn, T::Connection<'conn>, ()>, Error> {
         let url = Url::parse(url)?;
         let conn = self.connect(&url).await?;
         Ok(HttpRequestHandle {
@@ -163,16 +166,16 @@ where
 
 /// Represents a HTTP connection that may be encrypted or unencrypted.
 #[allow(clippy::large_enum_variant)]
-pub enum HttpConnection<'m, C>
+pub enum HttpConnection<'conn, C>
 where
     C: Read + Write,
 {
     Plain(C),
-    PlainBuffered(BufferedWrite<'m, C>),
+    PlainBuffered(BufferedWrite<'conn, C>),
     #[cfg(feature = "embedded-tls")]
-    Tls(embedded_tls::TlsConnection<'m, C, embedded_tls::Aes128GcmSha256>),
+    Tls(embedded_tls::TlsConnection<'conn, C, embedded_tls::Aes128GcmSha256>),
     #[cfg(not(feature = "embedded-tls"))]
-    Tls((&'m mut (), core::convert::Infallible)), // Variant is impossible to create, but we need it to avoid "unused lifetime" warning
+    Tls((&'conn mut (), core::convert::Infallible)), // Variant is impossible to create, but we need it to avoid "unused lifetime" warning
 }
 
 impl<'conn, T> HttpConnection<'conn, T>
@@ -201,10 +204,10 @@ where
     ///
     /// The response is returned.
     pub async fn send<'buf, B: RequestBody>(
-        &'conn mut self,
+        &'buf mut self,
         request: Request<'conn, B>,
         rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, HttpConnection<'conn, T>>, Error> {
+    ) -> Result<Response<'buf, 'conn, T>, Error> {
         request.write(self).await?;
         Response::read(self, request.method, rx_buf).await
     }
@@ -263,16 +266,16 @@ where
 /// A HTTP request handle
 ///
 /// The underlying connection is closed when drop'ed.
-pub struct HttpRequestHandle<'m, C, B>
+pub struct HttpRequestHandle<'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
-    pub conn: HttpConnection<'m, C>,
-    request: Option<DefaultRequestBuilder<'m, B>>,
+    pub conn: HttpConnection<'conn, C>,
+    request: Option<DefaultRequestBuilder<'conn, B>>,
 }
 
-impl<'m, C, B> HttpRequestHandle<'m, C, B>
+impl<'conn, C, B> HttpRequestHandle<'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
@@ -283,7 +286,7 @@ where
     /// its buffer for non-TLS connections.
     pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpRequestHandle<'buf, C, B>
     where
-        'm: 'buf,
+        'conn: 'buf,
     {
         HttpRequestHandle {
             conn: self.conn.into_buffered(tx_buf),
@@ -296,13 +299,7 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf, 'conn>(
-        &'conn mut self,
-        rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, HttpConnection<'conn, C>>, Error>
-    where
-        'conn: 'm,
-    {
+    pub async fn send<'buf>(&'buf mut self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, 'conn, C>, Error> {
         let request = self.request.take().ok_or(Error::AlreadySent)?.build();
         request.write(&mut self.conn).await?;
         Response::read(&mut self.conn, request.method, rx_buf).await
@@ -384,14 +381,11 @@ where
         }
     }
 
-    pub fn request<'conn, 'm>(
-        &'conn mut self,
+    pub fn request<'req>(
+        &'req mut self,
         method: Method,
-        path: &'m str,
-    ) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+        path: &'req str,
+    ) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         HttpResourceRequestBuilder {
             conn: &mut self.conn,
             request: Request::new(method, path).host(self.host),
@@ -400,42 +394,27 @@ where
     }
 
     /// Create a new scoped GET http request.
-    pub fn get<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn get<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::GET, path)
     }
 
     /// Create a new scoped POST http request.
-    pub fn post<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn post<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::POST, path)
     }
 
     /// Create a new scoped PUT http request.
-    pub fn put<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn put<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::PUT, path)
     }
 
     /// Create a new scoped DELETE http request.
-    pub fn delete<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn delete<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::DELETE, path)
     }
 
     /// Create a new scoped HEAD http request.
-    pub fn head<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn head<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::HEAD, path)
     }
 
@@ -445,28 +424,28 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf, 'conn, B: RequestBody>(
-        &'conn mut self,
-        mut request: Request<'res, B>,
-        rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, HttpConnection<'res, C>>, Error> {
+    pub async fn send<'req, B: RequestBody>(
+        &'req mut self,
+        mut request: Request<'req, B>,
+        rx_buf: &'req mut [u8],
+    ) -> Result<Response<'req, 'res, C>, Error> {
         request.base_path = Some(self.base_path);
         request.write(&mut self.conn).await?;
         Response::read(&mut self.conn, request.method, rx_buf).await
     }
 }
 
-pub struct HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
+pub struct HttpResourceRequestBuilder<'req, 'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
-    conn: &'conn mut HttpConnection<'res, C>,
-    base_path: &'res str,
-    request: DefaultRequestBuilder<'m, B>,
+    conn: &'req mut HttpConnection<'conn, C>,
+    base_path: &'req str,
+    request: DefaultRequestBuilder<'req, B>,
 }
 
-impl<'conn, 'res, 'm, C, B> HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
+impl<'req, 'conn, C, B> HttpResourceRequestBuilder<'req, 'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
@@ -477,10 +456,11 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf>(
-        self,
-        rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, HttpConnection<'res, C>>, Error> {
+    pub async fn send<'buf>(self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, 'conn, C>, Error>
+    where
+        'conn: 'req + 'buf,
+        'req: 'buf,
+    {
         let conn = self.conn;
         let mut request = self.request.build();
         request.base_path = Some(self.base_path);
@@ -489,19 +469,19 @@ where
     }
 }
 
-impl<'conn, 'res, 'm, C, B> RequestBuilder<'m, B> for HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
+impl<'req, 'conn, C, B> RequestBuilder<'req, B> for HttpResourceRequestBuilder<'req, 'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
-    type WithBody<T: RequestBody> = HttpResourceRequestBuilder<'conn, 'res, 'm, C, T>;
+    type WithBody<T: RequestBody> = HttpResourceRequestBuilder<'req, 'conn, C, T>;
 
-    fn headers(mut self, headers: &'m [(&'m str, &'m str)]) -> Self {
+    fn headers(mut self, headers: &'req [(&'req str, &'req str)]) -> Self {
         self.request = self.request.headers(headers);
         self
     }
 
-    fn path(mut self, path: &'m str) -> Self {
+    fn path(mut self, path: &'req str) -> Self {
         self.request = self.request.path(path);
         self
     }
@@ -514,7 +494,7 @@ where
         }
     }
 
-    fn host(mut self, host: &'m str) -> Self {
+    fn host(mut self, host: &'req str) -> Self {
         self.request = self.request.host(host);
         self
     }
@@ -524,12 +504,12 @@ where
         self
     }
 
-    fn basic_auth(mut self, username: &'m str, password: &'m str) -> Self {
+    fn basic_auth(mut self, username: &'req str, password: &'req str) -> Self {
         self.request = self.request.basic_auth(username, password);
         self
     }
 
-    fn build(self) -> Request<'m, B> {
+    fn build(self) -> Request<'req, B> {
         self.request.build()
     }
 }

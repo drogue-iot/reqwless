@@ -45,13 +45,19 @@ impl ReadBuffer<'_> {
     }
 }
 
-pub struct BufferingReader<'buf, B> {
+pub struct BufferingReader<'buf, 'conn, B>
+where
+    B: Read + Write,
+{
     buffer: ReadBuffer<'buf>,
-    stream: B,
+    stream: &'buf mut HttpConnection<'conn, B>,
 }
 
-impl<'buf, B> BufferingReader<'buf, B> {
-    pub fn new(buffer: &'buf mut [u8], loaded: usize, stream: B) -> Self {
+impl<'buf, 'conn, B> BufferingReader<'buf, 'conn, B>
+where
+    B: Read + Write,
+{
+    pub fn new(buffer: &'buf mut [u8], loaded: usize, stream: &'buf mut HttpConnection<'conn, B>) -> Self {
         Self {
             buffer: ReadBuffer::new(buffer, loaded),
             stream,
@@ -59,14 +65,14 @@ impl<'buf, B> BufferingReader<'buf, B> {
     }
 }
 
-impl<C> ErrorType for BufferingReader<'_, &mut HttpConnection<'_, C>>
+impl<C> ErrorType for BufferingReader<'_, '_, C>
 where
     C: Read + Write,
 {
     type Error = ErrorKind;
 }
 
-impl<C> Read for BufferingReader<'_, &mut HttpConnection<'_, C>>
+impl<C> Read for BufferingReader<'_, '_, C>
 where
     C: Read + Write,
 {
@@ -80,7 +86,7 @@ where
     }
 }
 
-impl<C> BufRead for BufferingReader<'_, &mut HttpConnection<'_, C>>
+impl<C> BufRead for BufferingReader<'_, '_, C>
 where
     C: Read + Write,
 {
