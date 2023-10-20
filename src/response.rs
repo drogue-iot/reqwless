@@ -341,7 +341,12 @@ where
 
         let is_done = match self {
             BodyReader::Empty => true,
-            BodyReader::FixedLength(reader) => reader.remaining == 0,
+            BodyReader::FixedLength(reader) => {
+                if reader.remaining > 0 {
+                    warn!("FixedLength: {} bytes remained", reader.remaining);
+                }
+                reader.remaining == 0
+            }
             BodyReader::Chunked(reader) => reader.chunk_remaining == ChunkState::Empty,
             BodyReader::ToEnd(_) => true,
         };
@@ -425,13 +430,14 @@ where
     C: BufRead + Read,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        let loaded = self.fill_buf().await?;
-        let len = loaded.len().min(buf.len());
+        if self.remaining == 0 {
+            return Ok(0);
+        }
 
-        buf[..len].copy_from_slice(&loaded[..len]);
-        self.consume(len);
+        let read = self.raw_body.read(buf).await.map_err(|e| Error::Network(e.kind()))?;
+        self.remaining -= read;
 
-        Ok(len)
+        Ok(read)
     }
 }
 
