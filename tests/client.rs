@@ -207,6 +207,43 @@ async fn test_resource_drogue_cloud_sandbox() {
     }
 }
 
+#[tokio::test]
+async fn test_request_response_notls_buffered() {
+    setup();
+    let addr = ([127, 0, 0, 1], 0).into();
+
+    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(echo)) });
+
+    let server = Server::bind(&addr).serve(service);
+    let addr = server.local_addr();
+
+    let (tx, rx) = oneshot::channel();
+    let t = tokio::spawn(async move {
+        tokio::select! {
+            _ = server => {}
+            _ = rx => {}
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{}", addr.port());
+    let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
+    let mut tx_buf = [0; 4096];
+    let mut rx_buf = [0; 4096];
+    let mut request = client
+        .request(Method::POST, &url)
+        .await
+        .unwrap()
+        .into_buffered(&mut tx_buf)
+        .body(b"PING".as_slice())
+        .content_type(ContentType::TextPlain);
+    let response = request.send(&mut rx_buf).await.unwrap();
+    let body = response.body().read_to_end().await;
+    assert_eq!(body.unwrap(), b"PING");
+
+    tx.send(()).unwrap();
+    t.await.unwrap();
+}
+
 fn load_certs(filename: &std::path::PathBuf) -> Vec<rustls::Certificate> {
     let certfile = std::fs::File::open(filename).expect("cannot open certificate file");
     let mut reader = std::io::BufReader::new(certfile);
