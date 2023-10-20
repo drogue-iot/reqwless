@@ -472,7 +472,7 @@ where
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ChunkState {
+enum ChunkState {
     NoChunk,
     NotEmpty(u32),
     Empty,
