@@ -579,18 +579,30 @@ where
     C: BufRead + Read,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        if buf.is_empty() {
-            return Ok(0);
+        match self.chunk_remaining {
+            ChunkState::NoChunk => self.read_next_chunk_length().await?,
+
+            ChunkState::NotEmpty(0) => {
+                // The current chunk is currently empty, advance into a new chunk...
+                self.read_chunk_end().await?;
+                self.read_next_chunk_length().await?;
+            }
+
+            ChunkState::NotEmpty(_) => {}
+
+            ChunkState::Empty => return Ok(0),
         }
 
-        // If we receive an empty buffer here, the body includes an empty chunk.
-        // `fill_buf` will return an Err if the connection is closed.
-        let loaded = self.fill_buf().await?;
+        let remaining = self.chunk_remaining.len();
+        let max_len = buf.len().min(remaining);
 
-        let len = loaded.len().min(buf.len());
+        let len = self
+            .raw_body
+            .read(&mut buf[..max_len])
+            .await
+            .map_err(|e| Error::Network(e.kind()))?;
 
-        buf[..len].copy_from_slice(&loaded[..len]);
-        self.consume(len);
+        self.chunk_remaining.consume(len);
 
         Ok(len)
     }
