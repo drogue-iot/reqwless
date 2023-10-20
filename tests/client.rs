@@ -52,15 +52,17 @@ async fn test_request_response_notls() {
     let url = format!("http://127.0.0.1:{}", addr.port());
     let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
     let mut rx_buf = [0; 4096];
-    let mut request = client
-        .request(Method::POST, &url)
-        .await
-        .unwrap()
-        .body(b"PING".as_slice())
-        .content_type(ContentType::TextPlain);
-    let response = request.send(&mut rx_buf).await.unwrap();
-    let body = response.body().read_to_end().await;
-    assert_eq!(body.unwrap(), b"PING");
+    for _ in 0..2 {
+        let mut request = client
+            .request(Method::POST, &url)
+            .await
+            .unwrap()
+            .body(b"PING".as_slice())
+            .content_type(ContentType::TextPlain);
+        let response = request.send(&mut rx_buf).await.unwrap();
+        let body = response.body().read_to_end().await;
+        assert_eq!(body.unwrap(), b"PING");
+    }
 
     tx.send(()).unwrap();
     t.await.unwrap();
