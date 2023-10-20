@@ -168,7 +168,6 @@ where
     C: Read + Write,
 {
     Plain(C),
-    #[cfg(feature = "embedded-tls")]
     PlainBuffered(BufferedWrite<'m, C>),
     #[cfg(feature = "embedded-tls")]
     Tls(embedded_tls::TlsConnection<'m, C, embedded_tls::Aes128GcmSha256>),
@@ -225,7 +224,6 @@ where
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Plain(conn) => conn.read(buf).await.map_err(|e| e.kind()),
-            #[cfg(feature = "embedded-tls")]
             Self::PlainBuffered(conn) => conn.read(buf).await.map_err(|e| e.kind()),
             #[cfg(feature = "embedded-tls")]
             Self::Tls(conn) => conn.read(buf).await.map_err(|e| e.kind()),
@@ -242,7 +240,6 @@ where
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Plain(conn) => conn.write(buf).await.map_err(|e| e.kind()),
-            #[cfg(feature = "embedded-tls")]
             Self::PlainBuffered(conn) => conn.write(buf).await.map_err(|e| e.kind()),
             #[cfg(feature = "embedded-tls")]
             Self::Tls(conn) => conn.write(buf).await.map_err(|e| e.kind()),
@@ -254,7 +251,6 @@ where
     async fn flush(&mut self) -> Result<(), Self::Error> {
         match self {
             Self::Plain(conn) => conn.flush().await.map_err(|e| e.kind()),
-            #[cfg(feature = "embedded-tls")]
             Self::PlainBuffered(conn) => conn.flush().await.map_err(|e| e.kind()),
             #[cfg(feature = "embedded-tls")]
             Self::Tls(conn) => conn.flush().await.map_err(|e| e.kind()),

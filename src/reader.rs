@@ -1,5 +1,8 @@
-use embedded_io::{Error, ErrorKind, ErrorType};
+use embedded_io::{ErrorKind, ErrorType};
 use embedded_io_async::{BufRead, Read, Write};
+
+#[cfg(feature = "embedded-tls")]
+use embedded_io::Error;
 
 use crate::client::HttpConnection;
 
