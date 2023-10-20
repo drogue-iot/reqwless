@@ -121,7 +121,7 @@ where
             #[cfg(feature = "embedded-tls")]
             match self.tls.as_mut() {
                 Some(tls) => Ok(HttpConnection::PlainBuffered(BufferedWrite::new(
-                    buffered_io_adapter::ConnErrorAdapter(conn),
+                    conn,
                     tls.write_buffer,
                 ))),
                 None => Ok(HttpConnection::Plain(conn)),
@@ -169,7 +169,7 @@ where
 {
     Plain(C),
     #[cfg(feature = "embedded-tls")]
-    PlainBuffered(BufferedWrite<'m, buffered_io_adapter::ConnErrorAdapter<C>>),
+    PlainBuffered(BufferedWrite<'m, C>),
     #[cfg(feature = "embedded-tls")]
     Tls(embedded_tls::TlsConnection<'m, C, embedded_tls::Aes128GcmSha256>),
     #[cfg(not(feature = "embedded-tls"))]
@@ -189,9 +189,7 @@ where
         'conn: 'buf,
     {
         match self {
-            HttpConnection::Plain(conn) => {
-                HttpConnection::PlainBuffered(BufferedWrite::new(buffered_io_adapter::ConnErrorAdapter(conn), tx_buf))
-            }
+            HttpConnection::Plain(conn) => HttpConnection::PlainBuffered(BufferedWrite::new(conn, tx_buf)),
             HttpConnection::PlainBuffered(conn) => HttpConnection::PlainBuffered(conn),
             HttpConnection::Tls(tls) => HttpConnection::Tls(tls),
         }
@@ -537,63 +535,5 @@ where
 
     fn build(self) -> Request<'m, B> {
         self.request.build()
-    }
-}
-
-mod buffered_io_adapter {
-    use embedded_io::{Error as _, ErrorKind, ErrorType, ReadExactError};
-    use embedded_io_async::{Read, Write};
-
-    pub struct Error(embedded_io::ErrorKind);
-
-    impl core::fmt::Debug for Error {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            self.0.fmt(f)
-        }
-    }
-
-    impl embedded_io_async::Error for Error {
-        fn kind(&self) -> embedded_io::ErrorKind {
-            self.0
-        }
-    }
-
-    pub struct ConnErrorAdapter<C>(pub C);
-
-    impl<C> ErrorType for ConnErrorAdapter<C> {
-        type Error = ErrorKind;
-    }
-
-    impl<C> Write for ConnErrorAdapter<C>
-    where
-        C: Write,
-    {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-            self.0.write(buf).await.map_err(|e| e.kind())
-        }
-
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            self.0.flush().await.map_err(|e| e.kind())
-        }
-
-        async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-            self.0.write_all(buf).await.map_err(|e| e.kind())
-        }
-    }
-
-    impl<C> Read for ConnErrorAdapter<C>
-    where
-        C: Read,
-    {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            self.0.read(buf).await.map_err(|e| e.kind())
-        }
-
-        async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ReadExactError<Self::Error>> {
-            self.0.read_exact(buf).await.map_err(|e| match e {
-                ReadExactError::UnexpectedEof => ReadExactError::UnexpectedEof,
-                ReadExactError::Other(e) => ReadExactError::Other(e.kind()),
-            })
-        }
     }
 }
