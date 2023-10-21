@@ -2,6 +2,7 @@
 #![allow(unknown_lints, async_fn_in_trait)]
 #![allow(stable_features)]
 #![feature(async_fn_in_trait)]
+#![feature(impl_trait_projections)]
 #![doc = include_str!("../README.md")]
 use core::{num::ParseIntError, str::Utf8Error};
 
