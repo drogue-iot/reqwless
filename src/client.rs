@@ -178,6 +178,33 @@ where
     Tls((&'conn mut (), core::convert::Infallible)), // Variant is impossible to create, but we need it to avoid "unused lifetime" warning
 }
 
+#[cfg(feature = "defmt")]
+impl<C> defmt::Format for HttpConnection<'_, C>
+where
+    C: Read + Write,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            HttpConnection::Plain(_) => defmt::write!(fmt, "Plain"),
+            HttpConnection::PlainBuffered(_) => defmt::write!(fmt, "PlainBuffered"),
+            HttpConnection::Tls(_) => defmt::write!(fmt, "Tls"),
+        }
+    }
+}
+
+impl<C> core::fmt::Debug for HttpConnection<'_, C>
+where
+    C: Read + Write,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            HttpConnection::Plain(_) => f.debug_tuple("Plain").finish(),
+            HttpConnection::PlainBuffered(_) => f.debug_tuple("PlainBuffered").finish(),
+            HttpConnection::Tls(_) => f.debug_tuple("Tls").finish(),
+        }
+    }
+}
+
 impl<'conn, T> HttpConnection<'conn, T>
 where
     T: Read + Write,
