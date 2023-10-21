@@ -681,55 +681,17 @@ impl From<u16> for Status {
 
 #[cfg(test)]
 mod tests {
-    use embedded_io::{ErrorKind, ErrorType};
-    use embedded_io_async::{Read, Write};
+    use embedded_io_async::Read;
 
     use crate::{
-        client::HttpConnection,
         reader::BufferingReader,
         request::Method,
         response::{ChunkState, ChunkedBodyReader, Response},
     };
 
-    struct Buffer {
-        b: Vec<u8>,
-    }
-    impl Buffer {
-        fn from(b: &[u8]) -> Self {
-            Self { b: b.to_vec() }
-        }
-    }
-
-    impl ErrorType for Buffer {
-        type Error = ErrorKind;
-    }
-
-    impl Read for Buffer {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            let len = buf.len().min(self.b.len());
-            buf[..len].copy_from_slice(&self.b[..len]);
-            self.b.drain(..len);
-
-            Ok(len)
-        }
-    }
-
-    impl Write for Buffer {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-            self.b.extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
-    }
-
     #[tokio::test]
     async fn can_read_with_content_length_with_same_buffer() {
-        let mut response = HttpConnection::Plain(Buffer::from(
-            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD",
-        ));
+        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
         let mut response_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut response_buf)
             .await
@@ -742,9 +704,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_with_content_length_to_other_buffer() {
-        let mut response = HttpConnection::Plain(Buffer::from(
-            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD",
-        ));
+        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -758,9 +718,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_discard_with_content_length() {
-        let mut response = HttpConnection::Plain(Buffer::from(
-            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD",
-        ));
+        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
         let mut response_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut response_buf)
             .await
@@ -771,9 +729,8 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_with_chunked_encoding() {
-        let mut response = HttpConnection::Plain(Buffer::from(
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n",
-        ));
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -787,9 +744,8 @@ mod tests {
 
     #[tokio::test]
     async fn can_discard_with_chunked_encoding() {
-        let mut response = HttpConnection::Plain(Buffer::from(
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n",
-        ));
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -800,7 +756,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_to_end_of_connection_with_same_buffer() {
-        let mut response = HttpConnection::Plain(Buffer::from(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD"));
+        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -813,7 +769,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_to_end_of_connection_to_other_buffer() {
-        let mut response = HttpConnection::Plain(Buffer::from(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD"));
+        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -827,7 +783,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_discard_to_end_of_connection() {
-        let mut response = HttpConnection::Plain(Buffer::from(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD"));
+        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
         let mut header_buf = [0; 200];
         let response = Response::read(&mut response, Method::GET, &mut header_buf)
             .await
@@ -838,7 +794,7 @@ mod tests {
 
     #[tokio::test]
     async fn chunked_body_reader_can_read_with_large_buffer() {
-        let mut raw_body = HttpConnection::Plain(Buffer::from(b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n"));
+        let mut raw_body = b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_slice();
         let mut read_buffer = [0; 128];
         let mut reader = ChunkedBodyReader {
             raw_body: BufferingReader::new(&mut read_buffer, 0, &mut raw_body),
@@ -855,7 +811,7 @@ mod tests {
 
     #[tokio::test]
     async fn chunked_body_reader_can_read_with_tiny_buffer() {
-        let mut raw_body = HttpConnection::Plain(Buffer::from(b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n"));
+        let mut raw_body = b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_slice();
         let mut read_buffer = [0; 128];
         let mut reader = ChunkedBodyReader {
             raw_body: BufferingReader::new(&mut read_buffer, 0, &mut raw_body),
