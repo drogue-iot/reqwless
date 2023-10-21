@@ -1,6 +1,5 @@
 #![cfg_attr(not(test), no_std)]
-#![feature(async_fn_in_trait)]
-#![allow(incomplete_features)]
+#![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
 use core::{num::ParseIntError, str::Utf8Error};
 
