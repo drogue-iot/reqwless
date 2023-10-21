@@ -2,18 +2,17 @@ use embedded_io::{Error as _, ErrorType};
 use embedded_io_async::{BufRead, Read, Write};
 use heapless::Vec;
 
-use crate::client::HttpConnection;
 use crate::headers::{ContentType, KeepAlive, TransferEncoding};
 use crate::reader::BufferingReader;
 use crate::request::Method;
 use crate::Error;
 
 /// Type representing a parsed HTTP response.
-pub struct Response<'buf, 'conn, C>
+pub struct Response<'buf, C>
 where
-    C: Read + Write,
+    C: Read,
 {
-    conn: &'buf mut HttpConnection<'conn, C>,
+    conn: &'buf mut C,
     /// The method used to create the response.
     method: Method,
     /// The HTTP response status code.
@@ -32,7 +31,7 @@ where
 }
 
 #[cfg(feature = "defmt")]
-impl<C> defmt::Format for Response<'_, '_, C>
+impl<C> defmt::Format for Response<'_, C>
 where
     C: Read + Write,
 {
@@ -53,7 +52,7 @@ where
     }
 }
 
-impl<C> core::fmt::Debug for Response<'_, '_, C>
+impl<C> core::fmt::Debug for Response<'_, C>
 where
     C: Read + Write,
 {
@@ -72,16 +71,12 @@ where
     }
 }
 
-impl<'buf, 'conn, C> Response<'buf, 'conn, C>
+impl<'buf, C> Response<'buf, C>
 where
-    C: Read + Write,
+    C: Read,
 {
     // Read at least the headers from the connection.
-    pub async fn read(
-        conn: &'buf mut HttpConnection<'conn, C>,
-        method: Method,
-        header_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, C>, Error> {
+    pub async fn read(conn: &'buf mut C, method: Method, header_buf: &'buf mut [u8]) -> Result<Self, Error> {
         let mut header_len = 0;
         let mut pos = 0;
         while pos < header_buf.len() {
@@ -179,7 +174,7 @@ where
     }
 
     /// Get the response body
-    pub fn body(self) -> ResponseBody<'buf, 'conn, C> {
+    pub fn body(self) -> ResponseBody<'buf, C> {
         let reader_hint = if self.method == Method::HEAD {
             // Head requests does not have a body so we return an empty reader
             ReaderHint::Empty
@@ -223,11 +218,11 @@ impl<'a> Iterator for HeaderIterator<'a> {
 /// This type contains the original header buffer provided to `read_headers`,
 /// now renamed to `body_buf`, the number of read body bytes that are available
 /// in `body_buf`, and a reader to be used for reading the remaining body.
-pub struct ResponseBody<'buf, 'conn, C>
+pub struct ResponseBody<'buf, C>
 where
-    C: Read + Write,
+    C: Read,
 {
-    conn: &'buf mut HttpConnection<'conn, C>,
+    conn: &'buf mut C,
     reader_hint: ReaderHint,
     /// The number of raw bytes read from the body and available in the beginning of `body_buf`.
     raw_body_read: usize,
@@ -242,11 +237,11 @@ enum ReaderHint {
     ToEnd, // https://www.rfc-editor.org/rfc/rfc7230#section-3.3.3 pt. 7: Until end of connection
 }
 
-impl<'buf, 'conn, C> ResponseBody<'buf, 'conn, C>
+impl<'buf, C> ResponseBody<'buf, C>
 where
-    C: Read + Write,
+    C: Read,
 {
-    pub fn reader(self) -> BodyReader<BufferingReader<'buf, 'conn, C>> {
+    pub fn reader(self) -> BodyReader<BufferingReader<'buf, C>> {
         let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
 
         match self.reader_hint {
@@ -264,9 +259,9 @@ where
     }
 }
 
-impl<'buf, 'conn, C> ResponseBody<'buf, 'conn, C>
+impl<'buf, C> ResponseBody<'buf, C>
 where
-    C: Read + Write,
+    C: Read,
 {
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
@@ -326,7 +321,7 @@ pub enum BodyReader<B> {
 
 impl<B> BodyReader<B>
 where
-    B: BufRead + Read,
+    B: Read,
 {
     /// Read the entire body
     pub async fn read_to_end(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
@@ -360,14 +355,13 @@ where
 
     async fn discard(&mut self) -> Result<usize, Error> {
         let mut body_len = 0;
+        let mut buf = [0; 128];
         loop {
-            let buf = self.fill_buf().await?;
-            if buf.is_empty() {
+            let buf = self.read(&mut buf).await?;
+            if buf == 0 {
                 break;
             }
-            let buf_len = buf.len();
-            body_len += buf_len;
-            self.consume(buf_len);
+            body_len += buf;
         }
 
         Ok(body_len)
@@ -380,7 +374,7 @@ impl<B> ErrorType for BodyReader<B> {
 
 impl<B> Read for BodyReader<B>
 where
-    B: BufRead + Read,
+    B: Read,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
@@ -427,7 +421,7 @@ impl<C> ErrorType for FixedLengthBodyReader<C> {
 
 impl<C> Read for FixedLengthBodyReader<C>
 where
-    C: BufRead + Read,
+    C: Read,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         if self.remaining == 0 {
@@ -506,31 +500,29 @@ pub struct ChunkedBodyReader<B> {
 
 impl<C> ChunkedBodyReader<C>
 where
-    C: BufRead + Read,
+    C: Read,
 {
     async fn read_next_chunk_length(&mut self) -> Result<(), Error> {
         let mut header_buf = [0; 8 + 2]; // 32 bit hex + \r + \n
         let mut total_read = 0;
 
         'read_size: loop {
-            let buf = self.raw_body.fill_buf().await.map_err(|e| e.kind())?;
-            for (i, byte) in buf.iter().enumerate() {
-                if *byte != b'\n' {
-                    header_buf[total_read] = *byte;
-                    total_read += 1;
+            let mut byte = 0;
+            self.raw_body
+                .read_exact(core::slice::from_mut(&mut byte))
+                .await
+                .map_err(|e| Error::from(e).kind())?;
 
-                    if total_read == header_buf.len() {
-                        self.raw_body.consume(i + 1);
-                        return Err(Error::Codec);
-                    }
-                } else {
-                    self.raw_body.consume(i + 1);
-                    break 'read_size;
+            if byte != b'\n' {
+                header_buf[total_read] = byte;
+                total_read += 1;
+
+                if total_read == header_buf.len() {
+                    return Err(Error::Codec);
                 }
+            } else {
+                break 'read_size;
             }
-
-            let consumed = buf.len();
-            self.raw_body.consume(consumed);
         }
 
         if header_buf[total_read - 1] != b'\r' {
@@ -595,7 +587,7 @@ impl<C> ErrorType for ChunkedBodyReader<C> {
 
 impl<C> Read for ChunkedBodyReader<C>
 where
-    C: BufRead + Read,
+    C: Read,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let remaining = self.handle_chunk_boundary().await?;

@@ -1,8 +1,5 @@
-use embedded_io::{ErrorKind, ErrorType};
+use embedded_io::{Error, ErrorKind, ErrorType};
 use embedded_io_async::{BufRead, Read, Write};
-
-#[cfg(feature = "embedded-tls")]
-use embedded_io::Error;
 
 use crate::client::HttpConnection;
 
@@ -45,19 +42,19 @@ impl ReadBuffer<'_> {
     }
 }
 
-pub struct BufferingReader<'buf, 'conn, B>
+pub struct BufferingReader<'buf, B>
 where
-    B: Read + Write,
+    B: Read,
 {
     buffer: ReadBuffer<'buf>,
-    stream: &'buf mut HttpConnection<'conn, B>,
+    stream: &'buf mut B,
 }
 
-impl<'buf, 'conn, B> BufferingReader<'buf, 'conn, B>
+impl<'buf, 'conn, B> BufferingReader<'buf, B>
 where
-    B: Read + Write,
+    B: Read,
 {
-    pub fn new(buffer: &'buf mut [u8], loaded: usize, stream: &'buf mut HttpConnection<'conn, B>) -> Self {
+    pub fn new(buffer: &'buf mut [u8], loaded: usize, stream: &'buf mut B) -> Self {
         Self {
             buffer: ReadBuffer::new(buffer, loaded),
             stream,
@@ -65,16 +62,16 @@ where
     }
 }
 
-impl<C> ErrorType for BufferingReader<'_, '_, C>
+impl<C> ErrorType for BufferingReader<'_, C>
 where
-    C: Read + Write,
+    C: Read,
 {
     type Error = ErrorKind;
 }
 
-impl<C> Read for BufferingReader<'_, '_, C>
+impl<C> Read for BufferingReader<'_, C>
 where
-    C: Read + Write,
+    C: Read,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if !self.buffer.is_empty() {
@@ -82,11 +79,11 @@ where
             return Ok(amt);
         }
 
-        self.stream.read(buf).await
+        self.stream.read(buf).await.map_err(|e| e.kind())
     }
 }
 
-impl<C> BufRead for BufferingReader<'_, '_, C>
+impl<C> BufRead for BufferingReader<'_, HttpConnection<'_, C>>
 where
     C: Read + Write,
 {
