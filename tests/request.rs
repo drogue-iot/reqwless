@@ -1,6 +1,7 @@
 use embedded_io_adapters::tokio_1::FromTokio;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
+use reqwless::client::HttpConnection;
 use reqwless::request::{Method, RequestBuilder};
 use reqwless::{headers::ContentType, request::Request, response::Response};
 use std::str::from_utf8;
@@ -35,7 +36,7 @@ async fn test_request_response() {
     });
 
     let stream = TcpStream::connect(addr).await.unwrap();
-    let mut stream = FromTokio::new(stream);
+    let mut stream = HttpConnection::Plain(FromTokio::new(stream));
 
     let request = Request::post("/")
         .body(b"PING".as_slice())

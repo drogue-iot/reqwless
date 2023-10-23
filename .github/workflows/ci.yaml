@@ -36,4 +36,6 @@ jobs:
         run: cargo clippy
 
       - name: Test
-        run: cargo test
+        run: |
+          cargo test
+          cargo test --no-default-features

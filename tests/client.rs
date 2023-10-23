@@ -1,6 +1,7 @@
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
 use embedded_io_adapters::tokio_1::FromTokio;
+use embedded_io_async::BufRead;
 use embedded_nal_async::{AddrType, IpAddr, Ipv4Addr};
 use hyper::server::conn::Http;
 use hyper::service::{make_service_fn, service_fn};
@@ -52,15 +53,17 @@ async fn test_request_response_notls() {
     let url = format!("http://127.0.0.1:{}", addr.port());
     let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
     let mut rx_buf = [0; 4096];
-    let mut request = client
-        .request(Method::POST, &url)
-        .await
-        .unwrap()
-        .body(b"PING".as_slice())
-        .content_type(ContentType::TextPlain);
-    let response = request.send(&mut rx_buf).await.unwrap();
-    let body = response.body().read_to_end().await;
-    assert_eq!(body.unwrap(), b"PING");
+    for _ in 0..2 {
+        let mut request = client
+            .request(Method::POST, &url)
+            .await
+            .unwrap()
+            .body(b"PING".as_slice())
+            .content_type(ContentType::TextPlain);
+        let response = request.send(&mut rx_buf).await.unwrap();
+        let body = response.body().read_to_end().await;
+        assert_eq!(body.unwrap(), b"PING");
+    }
 
     tx.send(()).unwrap();
     t.await.unwrap();
@@ -98,6 +101,56 @@ async fn test_resource_notls() {
             .unwrap();
         let body = response.body().read_to_end().await;
         assert_eq!(body.unwrap(), b"PING");
+    }
+
+    tx.send(()).unwrap();
+    t.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_resource_notls_bufread() {
+    setup();
+    let addr = ([127, 0, 0, 1], 0).into();
+
+    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(echo)) });
+
+    let server = Server::bind(&addr).serve(service);
+    let addr = server.local_addr();
+
+    let (tx, rx) = oneshot::channel();
+    let t = tokio::spawn(async move {
+        tokio::select! {
+            _ = server => {}
+            _ = rx => {}
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{}", addr.port());
+    let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
+    let mut rx_buf = [0; 4096];
+    let mut resource = client.resource(&url).await.unwrap();
+    for _ in 0..2 {
+        let response = resource
+            .post("/")
+            .body(b"PING".as_slice())
+            .content_type(ContentType::TextPlain)
+            .send(&mut rx_buf)
+            .await
+            .unwrap();
+        let mut body_reader = response.body().reader();
+
+        let mut body = vec![];
+        loop {
+            let buf = body_reader.fill_buf().await.unwrap();
+            if buf.is_empty() {
+                break;
+            }
+            body.extend_from_slice(buf);
+            let buf_len = buf.len();
+            body_reader.consume(buf_len);
+        }
+
+        assert_eq!(body, b"PING");
     }
 
     tx.send(()).unwrap();
@@ -205,6 +258,43 @@ async fn test_resource_drogue_cloud_sandbox() {
         assert_eq!(Status::Forbidden, response.status);
         assert_eq!(76, response.body().discard().await.unwrap());
     }
+}
+
+#[tokio::test]
+async fn test_request_response_notls_buffered() {
+    setup();
+    let addr = ([127, 0, 0, 1], 0).into();
+
+    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(echo)) });
+
+    let server = Server::bind(&addr).serve(service);
+    let addr = server.local_addr();
+
+    let (tx, rx) = oneshot::channel();
+    let t = tokio::spawn(async move {
+        tokio::select! {
+            _ = server => {}
+            _ = rx => {}
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{}", addr.port());
+    let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
+    let mut tx_buf = [0; 4096];
+    let mut rx_buf = [0; 4096];
+    let mut request = client
+        .request(Method::POST, &url)
+        .await
+        .unwrap()
+        .into_buffered(&mut tx_buf)
+        .body(b"PING".as_slice())
+        .content_type(ContentType::TextPlain);
+    let response = request.send(&mut rx_buf).await.unwrap();
+    let body = response.body().read_to_end().await;
+    assert_eq!(body.unwrap(), b"PING");
+
+    tx.send(()).unwrap();
+    t.await.unwrap();
 }
 
 fn load_certs(filename: &std::path::PathBuf) -> Vec<rustls::Certificate> {

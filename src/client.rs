@@ -79,7 +79,10 @@ where
         }
     }
 
-    async fn connect<'m>(&'m mut self, url: &Url<'m>) -> Result<HttpConnection<'m, T::Connection<'m>>, Error> {
+    async fn connect<'conn>(
+        &'conn mut self,
+        url: &Url<'_>,
+    ) -> Result<HttpConnection<'conn, T::Connection<'conn>>, Error> {
         let host = url.host();
         let port = url.port_or_default();
 
@@ -107,7 +110,7 @@ where
                 if let TlsVerify::Psk { identity, psk } = tls.verify {
                     config = config.with_psk(psk, &[identity]);
                 }
-                let mut conn: embedded_tls::TlsConnection<'m, T::Connection<'m>, embedded_tls::Aes128GcmSha256> =
+                let mut conn: embedded_tls::TlsConnection<'conn, T::Connection<'conn>, embedded_tls::Aes128GcmSha256> =
                     embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
                 conn.open::<_, embedded_tls::NoVerify>(TlsContext::new(&config, &mut rng))
                     .await?;
@@ -121,7 +124,7 @@ where
             #[cfg(feature = "embedded-tls")]
             match self.tls.as_mut() {
                 Some(tls) => Ok(HttpConnection::PlainBuffered(BufferedWrite::new(
-                    buffered_io_adapter::ConnErrorAdapter(conn),
+                    conn,
                     tls.write_buffer,
                 ))),
                 None => Ok(HttpConnection::Plain(conn)),
@@ -132,11 +135,11 @@ where
     }
 
     /// Create a single http request.
-    pub async fn request<'m>(
-        &'m mut self,
+    pub async fn request<'conn>(
+        &'conn mut self,
         method: Method,
-        url: &'m str,
-    ) -> Result<HttpRequestHandle<'m, HttpConnection<'m, T::Connection<'m>>, ()>, Error> {
+        url: &'conn str,
+    ) -> Result<HttpRequestHandle<'conn, T::Connection<'conn>, ()>, Error> {
         let url = Url::parse(url)?;
         let conn = self.connect(&url).await?;
         Ok(HttpRequestHandle {
@@ -150,7 +153,7 @@ where
     pub async fn resource<'res>(
         &'res mut self,
         resource_url: &'res str,
-    ) -> Result<HttpResource<'res, HttpConnection<'res, T::Connection<'res>>>, Error> {
+    ) -> Result<HttpResource<'res, T::Connection<'res>>, Error> {
         let resource_url = Url::parse(resource_url)?;
         let conn = self.connect(&resource_url).await?;
         Ok(HttpResource {
@@ -163,23 +166,64 @@ where
 
 /// Represents a HTTP connection that may be encrypted or unencrypted.
 #[allow(clippy::large_enum_variant)]
-pub enum HttpConnection<'m, C>
+pub enum HttpConnection<'conn, C>
 where
     C: Read + Write,
 {
     Plain(C),
+    PlainBuffered(BufferedWrite<'conn, C>),
     #[cfg(feature = "embedded-tls")]
-    PlainBuffered(BufferedWrite<'m, buffered_io_adapter::ConnErrorAdapter<C>>),
-    #[cfg(feature = "embedded-tls")]
-    Tls(embedded_tls::TlsConnection<'m, C, embedded_tls::Aes128GcmSha256>),
+    Tls(embedded_tls::TlsConnection<'conn, C, embedded_tls::Aes128GcmSha256>),
     #[cfg(not(feature = "embedded-tls"))]
-    Tls((&'m mut (), core::convert::Infallible)), // Variant is impossible to create, but we need it to avoid "unused lifetime" warning
+    Tls((&'conn mut (), core::convert::Infallible)), // Variant is impossible to create, but we need it to avoid "unused lifetime" warning
+}
+
+#[cfg(feature = "defmt")]
+impl<C> defmt::Format for HttpConnection<'_, C>
+where
+    C: Read + Write,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            HttpConnection::Plain(_) => defmt::write!(fmt, "Plain"),
+            HttpConnection::PlainBuffered(_) => defmt::write!(fmt, "PlainBuffered"),
+            HttpConnection::Tls(_) => defmt::write!(fmt, "Tls"),
+        }
+    }
+}
+
+impl<C> core::fmt::Debug for HttpConnection<'_, C>
+where
+    C: Read + Write,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            HttpConnection::Plain(_) => f.debug_tuple("Plain").finish(),
+            HttpConnection::PlainBuffered(_) => f.debug_tuple("PlainBuffered").finish(),
+            HttpConnection::Tls(_) => f.debug_tuple("Tls").finish(),
+        }
+    }
 }
 
 impl<'conn, T> HttpConnection<'conn, T>
 where
     T: Read + Write,
 {
+    /// Turn the request into a buffered request.
+    ///
+    /// This is only relevant if no TLS is used, as `embedded-tls` buffers internally and we reuse
+    /// its buffer for non-TLS connections.
+    pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpConnection<'buf, T>
+    where
+        'conn: 'buf,
+    {
+        match self {
+            HttpConnection::Plain(conn) => HttpConnection::PlainBuffered(BufferedWrite::new(conn, tx_buf)),
+            HttpConnection::PlainBuffered(conn) => HttpConnection::PlainBuffered(conn),
+            HttpConnection::Tls(tls) => HttpConnection::Tls(tls),
+        }
+    }
+
     /// Send a request on an established connection.
     ///
     /// The request is sent in its raw form without any base path from the resource.
@@ -187,10 +231,10 @@ where
     ///
     /// The response is returned.
     pub async fn send<'buf, B: RequestBody>(
-        &'conn mut self,
+        &'buf mut self,
         request: Request<'conn, B>,
         rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, HttpConnection<'conn, T>>, Error> {
+    ) -> Result<Response<'buf, HttpConnection<'conn, T>>, Error> {
         request.write(self).await?;
         Response::read(self, request.method, rx_buf).await
     }
@@ -210,7 +254,6 @@ where
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Plain(conn) => conn.read(buf).await.map_err(|e| e.kind()),
-            #[cfg(feature = "embedded-tls")]
             Self::PlainBuffered(conn) => conn.read(buf).await.map_err(|e| e.kind()),
             #[cfg(feature = "embedded-tls")]
             Self::Tls(conn) => conn.read(buf).await.map_err(|e| e.kind()),
@@ -227,7 +270,6 @@ where
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Plain(conn) => conn.write(buf).await.map_err(|e| e.kind()),
-            #[cfg(feature = "embedded-tls")]
             Self::PlainBuffered(conn) => conn.write(buf).await.map_err(|e| e.kind()),
             #[cfg(feature = "embedded-tls")]
             Self::Tls(conn) => conn.write(buf).await.map_err(|e| e.kind()),
@@ -239,7 +281,6 @@ where
     async fn flush(&mut self) -> Result<(), Self::Error> {
         match self {
             Self::Plain(conn) => conn.flush().await.map_err(|e| e.kind()),
-            #[cfg(feature = "embedded-tls")]
             Self::PlainBuffered(conn) => conn.flush().await.map_err(|e| e.kind()),
             #[cfg(feature = "embedded-tls")]
             Self::Tls(conn) => conn.flush().await.map_err(|e| e.kind()),
@@ -252,16 +293,16 @@ where
 /// A HTTP request handle
 ///
 /// The underlying connection is closed when drop'ed.
-pub struct HttpRequestHandle<'m, C, B>
+pub struct HttpRequestHandle<'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
-    pub conn: C,
-    request: Option<DefaultRequestBuilder<'m, B>>,
+    pub conn: HttpConnection<'conn, C>,
+    request: Option<DefaultRequestBuilder<'conn, B>>,
 }
 
-impl<'m, C, B> HttpRequestHandle<'m, C, B>
+impl<'conn, C, B> HttpRequestHandle<'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
@@ -270,12 +311,12 @@ where
     ///
     /// This is only relevant if no TLS is used, as `embedded-tls` buffers internally and we reuse
     /// its buffer for non-TLS connections.
-    pub fn into_buffered<'buf>(
-        self,
-        tx_buf: &'buf mut [u8],
-    ) -> HttpRequestHandle<'m, BufferedWrite<'buf, buffered_io_adapter::ConnErrorAdapter<C>>, B> {
+    pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpRequestHandle<'buf, C, B>
+    where
+        'conn: 'buf,
+    {
         HttpRequestHandle {
-            conn: BufferedWrite::new(buffered_io_adapter::ConnErrorAdapter(self.conn), tx_buf),
+            conn: self.conn.into_buffered(tx_buf),
             request: self.request,
         }
     }
@@ -285,7 +326,10 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf, 'conn>(&'conn mut self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, 'conn, C>, Error> {
+    pub async fn send<'buf>(
+        &'buf mut self,
+        rx_buf: &'buf mut [u8],
+    ) -> Result<Response<'buf, HttpConnection<'conn, C>>, Error> {
         let request = self.request.take().ok_or(Error::AlreadySent)?.build();
         request.write(&mut self.conn).await?;
         Response::read(&mut self.conn, request.method, rx_buf).await
@@ -343,7 +387,7 @@ pub struct HttpResource<'res, C>
 where
     C: Read + Write,
 {
-    pub conn: C,
+    pub conn: HttpConnection<'res, C>,
     pub host: &'res str,
     pub base_path: &'res str,
 }
@@ -356,25 +400,22 @@ where
     ///
     /// This is only relevant if no TLS is used, as `embedded-tls` buffers internally and we reuse
     /// its buffer for non-TLS connections.
-    pub fn into_buffered<'buf>(
-        self,
-        tx_buf: &'buf mut [u8],
-    ) -> HttpResource<'res, BufferedWrite<'buf, buffered_io_adapter::ConnErrorAdapter<C>>> {
+    pub fn into_buffered<'buf>(self, tx_buf: &'buf mut [u8]) -> HttpResource<'buf, C>
+    where
+        'res: 'buf,
+    {
         HttpResource {
-            conn: BufferedWrite::new(buffered_io_adapter::ConnErrorAdapter(self.conn), tx_buf),
+            conn: self.conn.into_buffered(tx_buf),
             host: self.host,
             base_path: self.base_path,
         }
     }
 
-    pub fn request<'conn, 'm>(
-        &'conn mut self,
+    pub fn request<'req>(
+        &'req mut self,
         method: Method,
-        path: &'m str,
-    ) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+        path: &'req str,
+    ) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         HttpResourceRequestBuilder {
             conn: &mut self.conn,
             request: Request::new(method, path).host(self.host),
@@ -383,42 +424,27 @@ where
     }
 
     /// Create a new scoped GET http request.
-    pub fn get<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn get<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::GET, path)
     }
 
     /// Create a new scoped POST http request.
-    pub fn post<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn post<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::POST, path)
     }
 
     /// Create a new scoped PUT http request.
-    pub fn put<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn put<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::PUT, path)
     }
 
     /// Create a new scoped DELETE http request.
-    pub fn delete<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn delete<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::DELETE, path)
     }
 
     /// Create a new scoped HEAD http request.
-    pub fn head<'conn, 'm>(&'conn mut self, path: &'m str) -> HttpResourceRequestBuilder<'conn, 'res, 'm, C, ()>
-    where
-        'res: 'm,
-    {
+    pub fn head<'req>(&'req mut self, path: &'req str) -> HttpResourceRequestBuilder<'req, 'res, C, ()> {
         self.request(Method::HEAD, path)
     }
 
@@ -428,28 +454,28 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf, 'conn, B: RequestBody>(
-        &'conn mut self,
-        mut request: Request<'res, B>,
-        rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, C>, Error> {
+    pub async fn send<'req, B: RequestBody>(
+        &'req mut self,
+        mut request: Request<'req, B>,
+        rx_buf: &'req mut [u8],
+    ) -> Result<Response<'req, HttpConnection<'res, C>>, Error> {
         request.base_path = Some(self.base_path);
         request.write(&mut self.conn).await?;
         Response::read(&mut self.conn, request.method, rx_buf).await
     }
 }
 
-pub struct HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
+pub struct HttpResourceRequestBuilder<'req, 'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
-    conn: &'conn mut C,
-    base_path: &'res str,
-    request: DefaultRequestBuilder<'m, B>,
+    conn: &'req mut HttpConnection<'conn, C>,
+    base_path: &'req str,
+    request: DefaultRequestBuilder<'req, B>,
 }
 
-impl<'conn, 'res, 'm, C, B> HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
+impl<'req, 'conn, C, B> HttpResourceRequestBuilder<'req, 'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
@@ -460,7 +486,11 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf>(self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, 'conn, C>, Error> {
+    pub async fn send<'buf>(self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, HttpConnection<'conn, C>>, Error>
+    where
+        'conn: 'req + 'buf,
+        'req: 'buf,
+    {
         let conn = self.conn;
         let mut request = self.request.build();
         request.base_path = Some(self.base_path);
@@ -469,19 +499,19 @@ where
     }
 }
 
-impl<'conn, 'res, 'm, C, B> RequestBuilder<'m, B> for HttpResourceRequestBuilder<'conn, 'res, 'm, C, B>
+impl<'req, 'conn, C, B> RequestBuilder<'req, B> for HttpResourceRequestBuilder<'req, 'conn, C, B>
 where
     C: Read + Write,
     B: RequestBody,
 {
-    type WithBody<T: RequestBody> = HttpResourceRequestBuilder<'conn, 'res, 'm, C, T>;
+    type WithBody<T: RequestBody> = HttpResourceRequestBuilder<'req, 'conn, C, T>;
 
-    fn headers(mut self, headers: &'m [(&'m str, &'m str)]) -> Self {
+    fn headers(mut self, headers: &'req [(&'req str, &'req str)]) -> Self {
         self.request = self.request.headers(headers);
         self
     }
 
-    fn path(mut self, path: &'m str) -> Self {
+    fn path(mut self, path: &'req str) -> Self {
         self.request = self.request.path(path);
         self
     }
@@ -494,7 +524,7 @@ where
         }
     }
 
-    fn host(mut self, host: &'m str) -> Self {
+    fn host(mut self, host: &'req str) -> Self {
         self.request = self.request.host(host);
         self
     }
@@ -504,70 +534,12 @@ where
         self
     }
 
-    fn basic_auth(mut self, username: &'m str, password: &'m str) -> Self {
+    fn basic_auth(mut self, username: &'req str, password: &'req str) -> Self {
         self.request = self.request.basic_auth(username, password);
         self
     }
 
-    fn build(self) -> Request<'m, B> {
+    fn build(self) -> Request<'req, B> {
         self.request.build()
-    }
-}
-
-mod buffered_io_adapter {
-    use embedded_io::{Error as _, ErrorType, ReadExactError};
-    use embedded_io_async::{Read, Write};
-
-    pub struct Error(embedded_io::ErrorKind);
-
-    impl core::fmt::Debug for Error {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            self.0.fmt(f)
-        }
-    }
-
-    impl embedded_io_async::Error for Error {
-        fn kind(&self) -> embedded_io::ErrorKind {
-            self.0
-        }
-    }
-
-    pub struct ConnErrorAdapter<C>(pub C);
-
-    impl<C> ErrorType for ConnErrorAdapter<C> {
-        type Error = Error;
-    }
-
-    impl<C> Write for ConnErrorAdapter<C>
-    where
-        C: Write,
-    {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-            self.0.write(buf).await.map_err(|e| Error(e.kind()))
-        }
-
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            self.0.flush().await.map_err(|e| Error(e.kind()))
-        }
-
-        async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-            self.0.write_all(buf).await.map_err(|e| Error(e.kind()))
-        }
-    }
-
-    impl<C> Read for ConnErrorAdapter<C>
-    where
-        C: Read,
-    {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            self.0.read(buf).await.map_err(|e| Error(e.kind()))
-        }
-
-        async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ReadExactError<Self::Error>> {
-            self.0.read_exact(buf).await.map_err(|e| match e {
-                ReadExactError::UnexpectedEof => ReadExactError::UnexpectedEof,
-                ReadExactError::Other(e) => ReadExactError::Other(Error(e.kind())),
-            })
-        }
     }
 }

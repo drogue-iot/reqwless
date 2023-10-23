@@ -1,20 +1,20 @@
 use embedded_io::{Error as _, ErrorType};
-use embedded_io_async::Read;
+use embedded_io_async::{BufRead, Read};
 use heapless::Vec;
 
-use crate::concat::ConcatReader;
 use crate::headers::{ContentType, KeepAlive, TransferEncoding};
+use crate::reader::BufferingReader;
 use crate::request::Method;
 use crate::Error;
 
 /// Type representing a parsed HTTP response.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Response<'buf, 'conn, C>
+pub struct Response<'buf, C>
 where
     C: Read,
 {
-    conn: &'conn mut C,
+    conn: &'buf mut C,
     /// The method used to create the response.
     method: Method,
     /// The HTTP response status code.
@@ -32,16 +32,12 @@ where
     raw_body_read: usize,
 }
 
-impl<'buf, 'conn, C> Response<'buf, 'conn, C>
+impl<'buf, C> Response<'buf, C>
 where
     C: Read,
 {
     // Read at least the headers from the connection.
-    pub async fn read(
-        conn: &'conn mut C,
-        method: Method,
-        header_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, 'conn, C>, Error> {
+    pub async fn read(conn: &'buf mut C, method: Method, header_buf: &'buf mut [u8]) -> Result<Self, Error> {
         let mut header_len = 0;
         let mut pos = 0;
         while pos < header_buf.len() {
@@ -139,7 +135,7 @@ where
     }
 
     /// Get the response body
-    pub fn body(self) -> ResponseBody<'buf, 'conn, C> {
+    pub fn body(self) -> ResponseBody<'buf, C> {
         let reader_hint = if self.method == Method::HEAD {
             // Head requests does not have a body so we return an empty reader
             ReaderHint::Empty
@@ -151,18 +147,14 @@ where
             ReaderHint::ToEnd
         };
 
-        // Move the body part of the bytes in the header buffer to the beginning of the buffer
-        let header_buf = self.header_buf;
-        for i in 0..self.raw_body_read {
-            header_buf[i] = header_buf[self.header_len + i];
-        }
-        // From now on, the header buffer is now the body buffer as all header bytes have been overwritten
-        let body_buf = header_buf;
+        // Move the body part of the bytes in the header buffer to the beginning of the buffer.
+        self.header_buf
+            .copy_within(self.header_len..self.header_len + self.raw_body_read, 0);
 
         ResponseBody {
             conn: self.conn,
             reader_hint,
-            body_buf,
+            body_buf: self.header_buf,
             raw_body_read: self.raw_body_read,
         }
     }
@@ -187,11 +179,11 @@ impl<'a> Iterator for HeaderIterator<'a> {
 /// This type contains the original header buffer provided to `read_headers`,
 /// now renamed to `body_buf`, the number of read body bytes that are available
 /// in `body_buf`, and a reader to be used for reading the remaining body.
-pub struct ResponseBody<'buf, 'conn, C>
+pub struct ResponseBody<'buf, C>
 where
     C: Read,
 {
-    conn: &'conn mut C,
+    conn: &'buf mut C,
     reader_hint: ReaderHint,
     /// The number of raw bytes read from the body and available in the beginning of `body_buf`.
     raw_body_read: usize,
@@ -206,12 +198,12 @@ enum ReaderHint {
     ToEnd, // https://www.rfc-editor.org/rfc/rfc7230#section-3.3.3 pt. 7: Until end of connection
 }
 
-impl<'buf, 'conn, C> ResponseBody<'buf, 'conn, C>
+impl<'buf, C> ResponseBody<'buf, C>
 where
     C: Read,
 {
-    pub fn reader(self) -> BodyReader<ConcatReader<&'buf [u8], &'conn mut C>> {
-        let raw_body = ConcatReader::new(&self.body_buf[..self.raw_body_read], self.conn);
+    pub fn reader(self) -> BodyReader<BufferingReader<'buf, C>> {
+        let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
 
         match self.reader_hint {
             ReaderHint::Empty => BodyReader::Empty,
@@ -221,21 +213,23 @@ where
             }),
             ReaderHint::Chunked => BodyReader::Chunked(ChunkedBodyReader {
                 raw_body,
-                chunk_remaining: 0,
-                empty_chunk_received: false,
+                chunk_remaining: ChunkState::NoChunk,
             }),
             ReaderHint::ToEnd => BodyReader::ToEnd(raw_body),
         }
     }
 }
 
-impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
+impl<'buf, C> ResponseBody<'buf, C>
+where
+    C: Read,
+{
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
     ///
     /// This is not valid for chunked responses as it requires that the body bytes over-read
     /// while parsing the http response header would be available for the body reader.
-    /// For this case, of if the original buffer is not large enough, use
+    /// For this case, or if the original buffer is not large enough, use
     /// [`BodyReader::read_to_end()`] instead from the reader returned by [`ResponseBody::reader()`].
     pub async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
         // We can only read responses with Content-Length header to end using the body_buf buffer,
@@ -279,10 +273,7 @@ impl<'buf, 'conn, C: Read> ResponseBody<'buf, 'conn, C> {
 }
 
 /// A body reader
-pub enum BodyReader<B>
-where
-    B: Read,
-{
+pub enum BodyReader<B> {
     Empty,
     FixedLength(FixedLengthBodyReader<B>),
     Chunked(ChunkedBodyReader<B>),
@@ -306,8 +297,13 @@ where
 
         let is_done = match self {
             BodyReader::Empty => true,
-            BodyReader::FixedLength(reader) => reader.remaining == 0,
-            BodyReader::Chunked(reader) => reader.empty_chunk_received,
+            BodyReader::FixedLength(reader) => {
+                if reader.remaining > 0 {
+                    warn!("FixedLength: {} bytes remained", reader.remaining);
+                }
+                reader.remaining == 0
+            }
+            BodyReader::Chunked(reader) => reader.chunk_remaining == ChunkState::Empty,
             BodyReader::ToEnd(_) => true,
         };
 
@@ -320,23 +316,20 @@ where
 
     async fn discard(&mut self) -> Result<usize, Error> {
         let mut body_len = 0;
+        let mut buf = [0; 128];
         loop {
-            let mut trash = [0; 256];
-            let len = self.read(&mut trash).await?;
-            if len == 0 {
+            let buf = self.read(&mut buf).await?;
+            if buf == 0 {
                 break;
             }
-            body_len += len;
+            body_len += buf;
         }
 
         Ok(body_len)
     }
 }
 
-impl<B> ErrorType for BodyReader<B>
-where
-    B: Read,
-{
+impl<B> ErrorType for BodyReader<B> {
     type Error = Error;
 }
 
@@ -354,43 +347,170 @@ where
     }
 }
 
+impl<B> BufRead for BodyReader<B>
+where
+    B: BufRead + Read,
+{
+    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+        match self {
+            BodyReader::Empty => Ok(&[]),
+            BodyReader::FixedLength(reader) => reader.fill_buf().await,
+            BodyReader::Chunked(reader) => reader.fill_buf().await,
+            BodyReader::ToEnd(conn) => conn.fill_buf().await.map_err(|e| Error::Network(e.kind())),
+        }
+    }
+
+    fn consume(&mut self, amt: usize) {
+        match self {
+            BodyReader::Empty => {}
+            BodyReader::FixedLength(reader) => reader.consume(amt),
+            BodyReader::Chunked(reader) => reader.consume(amt),
+            BodyReader::ToEnd(conn) => conn.consume(amt),
+        }
+    }
+}
+
 /// Fixed length response body reader
-pub struct FixedLengthBodyReader<B: Read> {
+pub struct FixedLengthBodyReader<B> {
     raw_body: B,
     remaining: usize,
 }
 
-impl<C: Read> ErrorType for FixedLengthBodyReader<C> {
+impl<C> ErrorType for FixedLengthBodyReader<C> {
     type Error = Error;
 }
 
-impl<C: Read> Read for FixedLengthBodyReader<C> {
+impl<C> Read for FixedLengthBodyReader<C>
+where
+    C: Read,
+{
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         if self.remaining == 0 {
             return Ok(0);
         }
-        let to_read = usize::min(self.remaining, buf.len());
-        let len = self.raw_body.read(&mut buf[..to_read]).await.map_err(|e| e.kind())?;
-        if len > 0 {
-            self.remaining -= len;
-            Ok(len)
+
+        let read = self.raw_body.read(buf).await.map_err(|e| Error::Network(e.kind()))?;
+        self.remaining -= read;
+
+        Ok(read)
+    }
+}
+
+impl<C> BufRead for FixedLengthBodyReader<C>
+where
+    C: BufRead + Read,
+{
+    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+        if self.remaining == 0 {
+            return Ok(&[]);
+        }
+
+        let loaded = self
+            .raw_body
+            .fill_buf()
+            .await
+            .map_err(|e| Error::Network(e.kind()))
+            .map(|data| &data[..data.len().min(self.remaining)])?;
+
+        if loaded.is_empty() {
+            return Err(Error::ConnectionClosed);
+        }
+
+        Ok(loaded)
+    }
+
+    fn consume(&mut self, amt: usize) {
+        let amt = amt.min(self.remaining);
+        self.remaining -= amt;
+        self.raw_body.consume(amt)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChunkState {
+    NoChunk,
+    NotEmpty(u32),
+    Empty,
+}
+
+impl ChunkState {
+    fn consume(&mut self, amt: usize) -> usize {
+        if let ChunkState::NotEmpty(remaining) = self {
+            let consumed = (amt as u32).min(*remaining);
+            *remaining -= consumed;
+            consumed as usize
         } else {
-            Err(Error::ConnectionClosed)
+            0
+        }
+    }
+
+    fn len(self) -> usize {
+        if let ChunkState::NotEmpty(len) = self {
+            len as usize
+        } else {
+            0
         }
     }
 }
 
 /// Chunked response body reader
-pub struct ChunkedBodyReader<B>
-where
-    B: Read,
-{
+pub struct ChunkedBodyReader<B> {
     raw_body: B,
-    chunk_remaining: u32,
-    empty_chunk_received: bool,
+    chunk_remaining: ChunkState,
 }
 
-impl<C: Read> ChunkedBodyReader<C> {
+impl<C> ChunkedBodyReader<C>
+where
+    C: Read,
+{
+    async fn read_next_chunk_length(&mut self) -> Result<(), Error> {
+        let mut header_buf = [0; 8 + 2]; // 32 bit hex + \r + \n
+        let mut total_read = 0;
+
+        'read_size: loop {
+            let mut byte = 0;
+            self.raw_body
+                .read_exact(core::slice::from_mut(&mut byte))
+                .await
+                .map_err(|e| Error::from(e).kind())?;
+
+            if byte != b'\n' {
+                header_buf[total_read] = byte;
+                total_read += 1;
+
+                if total_read == header_buf.len() {
+                    return Err(Error::Codec);
+                }
+            } else {
+                break 'read_size;
+            }
+        }
+
+        if header_buf[total_read - 1] != b'\r' {
+            return Err(Error::Codec);
+        }
+
+        let hex_digits = total_read - 1;
+
+        // Prepend hex with zeros
+        let mut hex = [b'0'; 8];
+        hex[8 - hex_digits..].copy_from_slice(&header_buf[..hex_digits]);
+
+        let mut bytes = [0; 4];
+        hex::decode_to_slice(hex, &mut bytes).map_err(|_| Error::Codec)?;
+
+        let chunk_length = u32::from_be_bytes(bytes);
+
+        debug!("Chunk length: {}", chunk_length);
+
+        self.chunk_remaining = match chunk_length {
+            0 => ChunkState::Empty,
+            other => ChunkState::NotEmpty(other),
+        };
+
+        Ok(())
+    }
+
     async fn read_chunk_end(&mut self) -> Result<(), Error> {
         // All chunks are terminated with a \r\n
         let mut newline_buf = [0; 2];
@@ -401,108 +521,68 @@ impl<C: Read> ChunkedBodyReader<C> {
         }
         Ok(())
     }
+
+    /// Handles chunk boundary and returns the number of bytes in the current (or new) chunk.
+    async fn handle_chunk_boundary(&mut self) -> Result<usize, Error> {
+        match self.chunk_remaining {
+            ChunkState::NoChunk => self.read_next_chunk_length().await?,
+
+            ChunkState::NotEmpty(0) => {
+                // The current chunk is currently empty, advance into a new chunk...
+                self.read_chunk_end().await?;
+                self.read_next_chunk_length().await?;
+            }
+
+            ChunkState::NotEmpty(_) => {}
+
+            ChunkState::Empty => return Ok(0),
+        }
+
+        Ok(self.chunk_remaining.len())
+    }
 }
 
-impl<C: Read> ErrorType for ChunkedBodyReader<C> {
+impl<C> ErrorType for ChunkedBodyReader<C> {
     type Error = Error;
 }
 
-impl<C: Read> Read for ChunkedBodyReader<C> {
+impl<C> Read for ChunkedBodyReader<C>
+where
+    C: Read,
+{
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        if buf.is_empty() || self.empty_chunk_received {
-            return Ok(0);
-        }
+        let remaining = self.handle_chunk_boundary().await?;
+        let max_len = buf.len().min(remaining);
 
-        if self.chunk_remaining == 0 {
-            // The current chunk is currently empty, advance into a new chunk...
+        let len = self
+            .raw_body
+            .read(&mut buf[..max_len])
+            .await
+            .map_err(|e| Error::Network(e.kind()))?;
 
-            let mut header_buf = [0; 8 + 2]; // 32 bit hex + \r + \n
-            let mut total_read = 0;
+        self.chunk_remaining.consume(len);
 
-            // For now, limit the number of bytes that we can read to avoid reading into a header after the current
-            let mut max_read = 3; // Single hex digit + \r + \n
-            loop {
-                let read = self
-                    .raw_body
-                    .read(&mut header_buf[total_read..max_read])
-                    .await
-                    .map_err(|e| e.kind())?;
-                if read == 0 {
-                    return Err(Error::ConnectionClosed);
-                }
-                total_read += read;
+        Ok(len)
+    }
+}
 
-                // Decode the chunked header
-                let header_and_body = &header_buf[..total_read];
-                if let Some(nl) = header_and_body.iter().position(|x| *x == b'\n') {
-                    let header = &header_and_body[..nl + 1];
-                    if nl == 0 || header[nl - 1] != b'\r' {
-                        return Err(Error::Codec);
-                    }
-                    let hex_digits = nl - 1;
-                    // Prepend hex with zeros
-                    let mut hex = [b'0'; 8];
-                    hex[8 - hex_digits..].copy_from_slice(&header[..hex_digits]);
-                    let mut bytes = [0; 4];
-                    hex::decode_to_slice(hex, &mut bytes).map_err(|_| Error::Codec)?;
-                    self.chunk_remaining = u32::from_be_bytes(bytes);
+impl<C> BufRead for ChunkedBodyReader<C>
+where
+    C: BufRead + Read,
+{
+    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+        let remaining = self.handle_chunk_boundary().await?;
 
-                    if self.chunk_remaining == 0 {
-                        self.empty_chunk_received = true;
-                    }
+        let buf = self.raw_body.fill_buf().await.map_err(|e| Error::Network(e.kind()))?;
 
-                    // Return the excess body bytes read during the header, if any
-                    let excess_body_read = header_and_body.len() - header.len();
-                    if excess_body_read > 0 {
-                        if excess_body_read > self.chunk_remaining as usize {
-                            // We have read chunk bytes that exceed the size of the chunk
-                            return Err(Error::Codec);
-                        }
+        let len = buf.len().min(remaining);
 
-                        buf[..excess_body_read].copy_from_slice(&header_and_body[header.len()..]);
-                        self.chunk_remaining -= excess_body_read as u32;
-                        return Ok(excess_body_read);
-                    }
+        Ok(&buf[..len])
+    }
 
-                    break;
-                }
-
-                if total_read >= 3 {
-                    // At least three bytes were read and a \n was not found
-                    // This means that the chunk length is at least double-digit hex
-                    // which in turn means that it is impossible for another header to
-                    // be present within the 10 bytes header buffer.
-                    // 10 is the length of the max header "ffffffff\r\n".
-                    // For example, 10\r\nXXXXXXYYYYYYYYYY is more than 10 bytes
-                    // - 10\r\n is the header
-                    // - XXXXXX are the excess body 6 bytes that we may read
-                    // - YYYYYYYYYY are the remaining unread chunk bytes.
-                    // However, for reading these excess bytes into the actual chunk payload,
-                    // the user buffer must be large enough to actually contain the excess read bytes.
-                    // A \n was not found, and we can read that + buf.len().
-                    max_read = core::cmp::min(total_read + 1 + buf.len(), 10);
-                }
-            }
-        }
-
-        if self.empty_chunk_received {
-            self.read_chunk_end().await?;
-            Ok(0)
-        } else {
-            let max_len = usize::min(self.chunk_remaining as usize, buf.len());
-            let len = self.raw_body.read(&mut buf[..max_len]).await.map_err(|e| e.kind())?;
-            if len == 0 {
-                return Err(Error::ConnectionClosed);
-            }
-
-            self.chunk_remaining -= len as u32;
-
-            if self.chunk_remaining == 0 {
-                self.read_chunk_end().await?;
-            }
-
-            Ok(len)
-        }
+    fn consume(&mut self, amt: usize) {
+        let consumed = self.chunk_remaining.consume(amt);
+        self.raw_body.consume(consumed);
     }
 }
 
@@ -601,7 +681,13 @@ impl From<u16> for Status {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use embedded_io_async::Read;
+
+    use crate::{
+        reader::BufferingReader,
+        request::Method,
+        response::{ChunkState, ChunkedBodyReader, Response},
+    };
 
     #[tokio::test]
     async fn can_read_with_content_length_with_same_buffer() {
@@ -708,11 +794,11 @@ mod tests {
 
     #[tokio::test]
     async fn chunked_body_reader_can_read_with_large_buffer() {
-        let raw_body = "1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_bytes();
+        let mut raw_body = b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_slice();
+        let mut read_buffer = [0; 128];
         let mut reader = ChunkedBodyReader {
-            raw_body,
-            chunk_remaining: 0,
-            empty_chunk_received: false,
+            raw_body: BufferingReader::new(&mut read_buffer, 0, &mut raw_body),
+            chunk_remaining: ChunkState::NoChunk,
         };
 
         let mut body = [0; 17];
@@ -725,14 +811,14 @@ mod tests {
 
     #[tokio::test]
     async fn chunked_body_reader_can_read_with_tiny_buffer() {
-        let raw_body = "1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_bytes();
+        let mut raw_body = b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_slice();
+        let mut read_buffer = [0; 128];
         let mut reader = ChunkedBodyReader {
-            raw_body,
-            chunk_remaining: 0,
-            empty_chunk_received: false,
+            raw_body: BufferingReader::new(&mut read_buffer, 0, &mut raw_body),
+            chunk_remaining: ChunkState::NoChunk,
         };
 
-        let mut body = Vec::<u8, 17>::new();
+        let mut body = heapless::Vec::<u8, 17>::new();
         for _ in 0..17 {
             let mut buf = [0; 1];
             assert_eq!(1, reader.read(&mut buf).await.unwrap());

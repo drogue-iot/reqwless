@@ -11,8 +11,8 @@ use embedded_io_async::ReadExactError;
 mod fmt;
 
 pub mod client;
-mod concat;
 pub mod headers;
+mod reader;
 pub mod request;
 pub mod response;
 

@@ -64,6 +64,5 @@ This enables `alloc` on `embedded-tls` which in turn enables RSA signature algor
 `reqwless` requires a feature from `nightly` to compile `embedded-io` with async support:
 
 * `async_fn_in_trait`
-* `impl_trait_projections`
 
 This feature is complete, but is not yet merged to `stable`.
