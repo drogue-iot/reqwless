@@ -51,7 +51,7 @@ where
             })?;
 
             if n == 0 {
-                return Err(Error::ConnectionClosed);
+                return Err(Error::ConnectionAborted);
             }
 
             pos += n;
@@ -413,7 +413,7 @@ where
             .map(|data| &data[..data.len().min(self.remaining)])?;
 
         if loaded.is_empty() {
-            return Err(Error::ConnectionClosed);
+            return Err(Error::ConnectionAborted);
         }
 
         Ok(loaded)

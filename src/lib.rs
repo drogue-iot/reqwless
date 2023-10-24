@@ -37,15 +37,15 @@ pub enum Error {
     AlreadySent,
     /// An invalid number of bytes were written to request body
     IncorrectBodyWritten,
-    /// The underlying connection was closed
-    ConnectionClosed,
+    /// The underlying connection was closed while being used
+    ConnectionAborted,
 }
 
 impl embedded_io::Error for Error {
     fn kind(&self) -> embedded_io::ErrorKind {
         match self {
             Error::Network(kind) => *kind,
-            Error::ConnectionClosed => embedded_io::ErrorKind::NotConnected,
+            Error::ConnectionAborted => embedded_io::ErrorKind::ConnectionAborted,
             _ => embedded_io::ErrorKind::Other,
         }
     }
@@ -60,7 +60,7 @@ impl From<embedded_io::ErrorKind> for Error {
 impl<E: embedded_io::Error> From<ReadExactError<E>> for Error {
     fn from(value: ReadExactError<E>) -> Self {
         match value {
-            ReadExactError::UnexpectedEof => Error::ConnectionClosed,
+            ReadExactError::UnexpectedEof => Error::ConnectionAborted,
             ReadExactError::Other(e) => Error::Network(e.kind()),
         }
     }
