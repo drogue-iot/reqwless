@@ -43,7 +43,10 @@ pub enum Error {
 
 impl embedded_io::Error for Error {
     fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
+        match self {
+            Error::Network(kind) => *kind,
+            _ => embedded_io::ErrorKind::Other,
+        }
     }
 }
 
