@@ -482,12 +482,11 @@ where
                     return Err(Error::Codec);
                 }
             } else {
+                if total_read == 0 || header_buf[total_read - 1] != b'\r' {
+                    return Err(Error::Codec);
+                }
                 break 'read_size;
             }
-        }
-
-        if header_buf[total_read - 1] != b'\r' {
-            return Err(Error::Codec);
         }
 
         let hex_digits = total_read - 1;
@@ -687,6 +686,7 @@ mod tests {
         reader::BufferingReader,
         request::Method,
         response::{ChunkState, ChunkedBodyReader, Response},
+        Error,
     };
 
     #[tokio::test]
@@ -725,6 +725,21 @@ mod tests {
             .unwrap();
 
         assert_eq!(11, response.body().discard().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn incorrect_fragment_length_does_not_panic() {
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n\n\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut header_buf = [0; 200];
+
+        let response = Response::read(&mut response, Method::GET, &mut header_buf)
+            .await
+            .unwrap();
+
+        let error = response.body().read_to_end().await.unwrap_err();
+
+        assert!(matches!(error, Error::Codec))
     }
 
     #[tokio::test]
