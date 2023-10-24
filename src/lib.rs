@@ -45,6 +45,7 @@ impl embedded_io::Error for Error {
     fn kind(&self) -> embedded_io::ErrorKind {
         match self {
             Error::Network(kind) => *kind,
+            Error::ConnectionClosed => embedded_io::ErrorKind::NotConnected,
             _ => embedded_io::ErrorKind::Other,
         }
     }
