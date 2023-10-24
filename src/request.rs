@@ -8,18 +8,18 @@ use embedded_io_async::Write;
 use heapless::String;
 
 /// A read only HTTP request type
-pub struct Request<'a, B>
+pub struct Request<'req, B>
 where
     B: RequestBody,
 {
     pub(crate) method: Method,
-    pub(crate) base_path: Option<&'a str>,
-    pub(crate) path: &'a str,
-    pub(crate) auth: Option<Auth<'a>>,
-    pub(crate) host: Option<&'a str>,
+    pub(crate) base_path: Option<&'req str>,
+    pub(crate) path: &'req str,
+    pub(crate) auth: Option<Auth<'req>>,
+    pub(crate) host: Option<&'req str>,
     pub(crate) body: Option<B>,
     pub(crate) content_type: Option<ContentType>,
-    pub(crate) extra_headers: Option<&'a [(&'a str, &'a str)]>,
+    pub(crate) extra_headers: Option<&'req [(&'req str, &'req str)]>,
 }
 
 impl Default for Request<'_, ()> {
@@ -38,26 +38,26 @@ impl Default for Request<'_, ()> {
 }
 
 /// A HTTP request builder.
-pub trait RequestBuilder<'a, B>
+pub trait RequestBuilder<'req, B>
 where
     B: RequestBody,
 {
-    type WithBody<T: RequestBody>: RequestBuilder<'a, T>;
+    type WithBody<T: RequestBody>: RequestBuilder<'req, T>;
 
     /// Set optional headers on the request.
-    fn headers(self, headers: &'a [(&'a str, &'a str)]) -> Self;
+    fn headers(self, headers: &'req [(&'req str, &'req str)]) -> Self;
     /// Set the path of the HTTP request.
-    fn path(self, path: &'a str) -> Self;
+    fn path(self, path: &'req str) -> Self;
     /// Set the data to send in the HTTP request body.
     fn body<T: RequestBody>(self, body: T) -> Self::WithBody<T>;
     /// Set the host header.
-    fn host(self, host: &'a str) -> Self;
+    fn host(self, host: &'req str) -> Self;
     /// Set the content type header for the request.
     fn content_type(self, content_type: ContentType) -> Self;
     /// Set the basic authentication header for the request.
-    fn basic_auth(self, username: &'a str, password: &'a str) -> Self;
+    fn basic_auth(self, username: &'req str, password: &'req str) -> Self;
     /// Return an immutable request.
-    fn build(self) -> Request<'a, B>;
+    fn build(self) -> Request<'req, B>;
 }
 
 /// Request authentication scheme.
@@ -65,10 +65,10 @@ pub enum Auth<'a> {
     Basic { username: &'a str, password: &'a str },
 }
 
-impl<'a> Request<'a, ()> {
+impl<'req> Request<'req, ()> {
     /// Create a new http request.
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(method: Method, path: &'a str) -> DefaultRequestBuilder<'a, ()> {
+    pub fn new(method: Method, path: &'req str) -> DefaultRequestBuilder<'req, ()> {
         DefaultRequestBuilder(Request {
             method,
             path,
@@ -77,32 +77,32 @@ impl<'a> Request<'a, ()> {
     }
 
     /// Create a new GET http request.
-    pub fn get(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
+    pub fn get(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
         Self::new(Method::GET, path)
     }
 
     /// Create a new POST http request.
-    pub fn post(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
+    pub fn post(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
         Self::new(Method::POST, path)
     }
 
     /// Create a new PUT http request.
-    pub fn put(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
+    pub fn put(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
         Self::new(Method::PUT, path)
     }
 
     /// Create a new DELETE http request.
-    pub fn delete(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
+    pub fn delete(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
         Self::new(Method::DELETE, path)
     }
 
     /// Create a new HEAD http request.
-    pub fn head(path: &'a str) -> DefaultRequestBuilder<'a, ()> {
+    pub fn head(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
         Self::new(Method::HEAD, path)
     }
 }
 
-impl<'a, B> Request<'a, B>
+impl<'req, B> Request<'req, B>
 where
     B: RequestBody,
 {
@@ -190,22 +190,22 @@ where
     }
 }
 
-pub struct DefaultRequestBuilder<'a, B>(Request<'a, B>)
+pub struct DefaultRequestBuilder<'req, B>(Request<'req, B>)
 where
     B: RequestBody;
 
-impl<'a, B> RequestBuilder<'a, B> for DefaultRequestBuilder<'a, B>
+impl<'req, B> RequestBuilder<'req, B> for DefaultRequestBuilder<'req, B>
 where
     B: RequestBody,
 {
-    type WithBody<T: RequestBody> = DefaultRequestBuilder<'a, T>;
+    type WithBody<T: RequestBody> = DefaultRequestBuilder<'req, T>;
 
-    fn headers(mut self, headers: &'a [(&'a str, &'a str)]) -> Self {
+    fn headers(mut self, headers: &'req [(&'req str, &'req str)]) -> Self {
         self.0.extra_headers.replace(headers);
         self
     }
 
-    fn path(mut self, path: &'a str) -> Self {
+    fn path(mut self, path: &'req str) -> Self {
         self.0.path = path;
         self
     }
@@ -223,7 +223,7 @@ where
         })
     }
 
-    fn host(mut self, host: &'a str) -> Self {
+    fn host(mut self, host: &'req str) -> Self {
         self.0.host.replace(host);
         self
     }
@@ -233,12 +233,12 @@ where
         self
     }
 
-    fn basic_auth(mut self, username: &'a str, password: &'a str) -> Self {
+    fn basic_auth(mut self, username: &'req str, password: &'req str) -> Self {
         self.0.auth.replace(Auth::Basic { username, password });
         self
     }
 
-    fn build(self) -> Request<'a, B> {
+    fn build(self) -> Request<'req, B> {
         self.0
     }
 }
