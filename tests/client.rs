@@ -395,3 +395,15 @@ async fn echo(req: hyper::Request<Body>) -> Result<hyper::Response<Body>, hyper:
         _ => Ok(hyper::Response::new(req.into_body())),
     }
 }
+
+#[test]
+fn compile_tests() {
+    #[allow(dead_code)]
+    async fn rx_buffer_lifetime_is_propagated_to_output<'buf>(port: u16, rx_buf: &'buf mut [u8]) -> &'buf mut [u8] {
+        let mut http = HttpClient::new(&TCP, &LOOPBACK_DNS);
+        let url = format!("http://127.0.0.1:{}", port);
+        let mut request = http.request(Method::GET, &url).await.unwrap();
+        let response = request.send(rx_buf).await.unwrap();
+        response.body().read_to_end().await.unwrap()
+    }
+}

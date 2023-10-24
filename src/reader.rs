@@ -42,19 +42,19 @@ impl ReadBuffer<'_> {
     }
 }
 
-pub struct BufferingReader<'buf, B>
+pub struct BufferingReader<'resp, 'buf, B>
 where
     B: Read,
 {
     buffer: ReadBuffer<'buf>,
-    stream: &'buf mut B,
+    stream: &'resp mut B,
 }
 
-impl<'buf, 'conn, B> BufferingReader<'buf, B>
+impl<'resp, 'buf, B> BufferingReader<'resp, 'buf, B>
 where
     B: Read,
 {
-    pub fn new(buffer: &'buf mut [u8], loaded: usize, stream: &'buf mut B) -> Self {
+    pub fn new(buffer: &'buf mut [u8], loaded: usize, stream: &'resp mut B) -> Self {
         Self {
             buffer: ReadBuffer::new(buffer, loaded),
             stream,
@@ -62,14 +62,14 @@ where
     }
 }
 
-impl<C> ErrorType for BufferingReader<'_, C>
+impl<C> ErrorType for BufferingReader<'_, '_, C>
 where
     C: Read,
 {
     type Error = ErrorKind;
 }
 
-impl<C> Read for BufferingReader<'_, C>
+impl<C> Read for BufferingReader<'_, '_, C>
 where
     C: Read,
 {
@@ -83,7 +83,7 @@ where
     }
 }
 
-impl<C> BufRead for BufferingReader<'_, HttpConnection<'_, C>>
+impl<C> BufRead for BufferingReader<'_, '_, HttpConnection<'_, C>>
 where
     C: Read + Write,
 {
