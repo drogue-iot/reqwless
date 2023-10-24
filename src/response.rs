@@ -10,7 +10,7 @@ use crate::Error;
 /// Type representing a parsed HTTP response.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Response<'resp, C>
+pub struct Response<'resp, 'buf, C>
 where
     C: Read,
 {
@@ -27,17 +27,17 @@ where
     pub transfer_encoding: heapless::Vec<TransferEncoding, 4>,
     /// The keep-alive parameters.
     pub keep_alive: Option<KeepAlive>,
-    header_buf: &'resp mut [u8],
+    header_buf: &'buf mut [u8],
     header_len: usize,
     raw_body_read: usize,
 }
 
-impl<'resp, C> Response<'resp, C>
+impl<'resp, 'buf, C> Response<'resp, 'buf, C>
 where
     C: Read,
 {
     // Read at least the headers from the connection.
-    pub async fn read(conn: &'resp mut C, method: Method, header_buf: &'resp mut [u8]) -> Result<Self, Error> {
+    pub async fn read(conn: &'resp mut C, method: Method, header_buf: &'buf mut [u8]) -> Result<Self, Error> {
         let mut header_len = 0;
         let mut pos = 0;
         while pos < header_buf.len() {
@@ -135,7 +135,7 @@ where
     }
 
     /// Get the response body
-    pub fn body(self) -> ResponseBody<'resp, C> {
+    pub fn body(self) -> ResponseBody<'resp, 'buf, C> {
         let reader_hint = if self.method == Method::HEAD {
             // Head requests does not have a body so we return an empty reader
             ReaderHint::Empty
@@ -179,7 +179,7 @@ impl<'a> Iterator for HeaderIterator<'a> {
 /// This type contains the original header buffer provided to `read_headers`,
 /// now renamed to `body_buf`, the number of read body bytes that are available
 /// in `body_buf`, and a reader to be used for reading the remaining body.
-pub struct ResponseBody<'resp, C>
+pub struct ResponseBody<'resp, 'buf, C>
 where
     C: Read,
 {
@@ -188,7 +188,7 @@ where
     /// The number of raw bytes read from the body and available in the beginning of `body_buf`.
     raw_body_read: usize,
     /// The buffer initially provided to read the header.
-    pub body_buf: &'resp mut [u8],
+    pub body_buf: &'buf mut [u8],
 }
 
 enum ReaderHint {
@@ -198,11 +198,11 @@ enum ReaderHint {
     ToEnd, // https://www.rfc-editor.org/rfc/rfc7230#section-3.3.3 pt. 7: Until end of connection
 }
 
-impl<'resp, C> ResponseBody<'resp, C>
+impl<'resp, 'buf, C> ResponseBody<'resp, 'buf, C>
 where
     C: Read,
 {
-    pub fn reader(self) -> BodyReader<BufferingReader<'resp, C>> {
+    pub fn reader(self) -> BodyReader<BufferingReader<'resp, 'buf, C>> {
         let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
 
         match self.reader_hint {
@@ -220,7 +220,7 @@ where
     }
 }
 
-impl<'resp, C> ResponseBody<'resp, C>
+impl<'resp, 'buf, C> ResponseBody<'resp, 'buf, C>
 where
     C: Read,
 {
@@ -231,7 +231,7 @@ where
     /// while parsing the http response header would be available for the body reader.
     /// For this case, or if the original buffer is not large enough, use
     /// [`BodyReader::read_to_end()`] instead from the reader returned by [`ResponseBody::reader()`].
-    pub async fn read_to_end(self) -> Result<&'resp mut [u8], Error> {
+    pub async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
         // We can only read responses with Content-Length header to end using the body_buf buffer,
         // as any other response would require the body reader to know the entire body.
         match self.reader_hint {

@@ -230,11 +230,11 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf, B: RequestBody>(
-        &'buf mut self,
+    pub async fn send<'req, 'buf, B: RequestBody>(
+        &'req mut self,
         request: Request<'conn, B>,
         rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, HttpConnection<'conn, T>>, Error> {
+    ) -> Result<Response<'req, 'buf, HttpConnection<'conn, T>>, Error> {
         request.write(self).await?;
         Response::read(self, request.method, rx_buf).await
     }
@@ -326,10 +326,10 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf>(
-        &'buf mut self,
+    pub async fn send<'req, 'buf>(
+        &'req mut self,
         rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'buf, HttpConnection<'conn, C>>, Error> {
+    ) -> Result<Response<'req, 'buf, HttpConnection<'conn, C>>, Error> {
         let request = self.request.take().ok_or(Error::AlreadySent)?.build();
         request.write(&mut self.conn).await?;
         Response::read(&mut self.conn, request.method, rx_buf).await
@@ -454,11 +454,11 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'req, B: RequestBody>(
+    pub async fn send<'req, 'buf, B: RequestBody>(
         &'req mut self,
         mut request: Request<'req, B>,
-        rx_buf: &'req mut [u8],
-    ) -> Result<Response<'req, HttpConnection<'res, C>>, Error> {
+        rx_buf: &'buf mut [u8],
+    ) -> Result<Response<'req, 'buf, HttpConnection<'res, C>>, Error> {
         request.base_path = Some(self.base_path);
         request.write(&mut self.conn).await?;
         Response::read(&mut self.conn, request.method, rx_buf).await
@@ -486,11 +486,10 @@ where
     /// The response headers are stored in the provided rx_buf, which should be sized to contain at least the response headers.
     ///
     /// The response is returned.
-    pub async fn send<'buf>(self, rx_buf: &'buf mut [u8]) -> Result<Response<'buf, HttpConnection<'conn, C>>, Error>
-    where
-        'conn: 'req + 'buf,
-        'req: 'buf,
-    {
+    pub async fn send<'buf>(
+        self,
+        rx_buf: &'buf mut [u8],
+    ) -> Result<Response<'req, 'buf, HttpConnection<'conn, C>>, Error> {
         let conn = self.conn;
         let mut request = self.request.build();
         request.base_path = Some(self.base_path);
