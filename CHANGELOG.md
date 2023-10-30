@@ -7,6 +7,8 @@
 * bugfixes and enhancements
 * bump version
 ([c4efcb5](https://github.com/drogue-iot/reqwless/commit/c4efcb5cb3c5b78f179f8d9eb65afbb8959bed97))
+* Implement `BufRead` for `BodyReader` ([#45](https://github.com/drogue-iot/reqwless/pull/45))
+* Buffer writes automatically if `embedded-tls` is set up, regardless of the URL scheme ([#43](https://github.com/drogue-iot/reqwless/pull/43))
 
 ## v0.8.0 (2023-10-05)
 
