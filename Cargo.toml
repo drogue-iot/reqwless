@@ -13,7 +13,7 @@ keywords = ["embedded", "async", "http", "no_std"]
 exclude = [".github"]
 
 [dependencies]
-buffered-io = { version = "0.4.0", features = ["async"] }
+buffered-io = { version = "0.4.2", features = ["async"] }
 embedded-io = { version = "0.6" }
 embedded-io-async = { version = "0.6" }
 embedded-nal-async = "0.6.0"
