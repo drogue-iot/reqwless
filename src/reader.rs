@@ -49,7 +49,7 @@ where
         // The matches/if let dance is to fix lifetime of the borrowed inner connection.
         #[cfg(feature = "embedded-tls")]
         if matches!(self.buffered.bypass(), Ok(HttpConnection::Tls(_))) {
-            if let HttpConnection::Tls(ref mut tls) = self.buffered.bypass().unwrap() {
+            if let Ok(HttpConnection::Tls(ref mut tls)) = self.buffered.bypass() {
                 return tls.fill_buf().await.map_err(|e| e.kind());
             }
             unreachable!();
