@@ -551,6 +551,10 @@ where
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let remaining = self.handle_chunk_boundary().await?;
+        if remaining == 0 {
+            return Ok(0);
+        }
+
         let max_len = buf.len().min(remaining);
 
         let len = self
