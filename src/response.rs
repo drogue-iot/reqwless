@@ -537,6 +537,11 @@ where
             ChunkState::Empty => return Ok(0),
         }
 
+        if self.chunk_remaining == ChunkState::Empty {
+            // Read final chunk termination
+            self.read_chunk_end().await?;
+        }
+
         Ok(self.chunk_remaining.len())
     }
 }
