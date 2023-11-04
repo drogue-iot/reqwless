@@ -537,6 +537,11 @@ where
             ChunkState::Empty => return Ok(0),
         }
 
+        if self.chunk_remaining == ChunkState::Empty {
+            // Read final chunk termination
+            self.read_chunk_end().await?;
+        }
+
         Ok(self.chunk_remaining.len())
     }
 }
@@ -680,6 +685,9 @@ impl From<u16> for Status {
 
 #[cfg(test)]
 mod tests {
+    use core::convert::Infallible;
+
+    use embedded_io::ErrorType;
     use embedded_io_async::Read;
 
     use crate::{
@@ -691,120 +699,126 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_with_content_length_with_same_buffer() {
-        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD");
         let mut response_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut response_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut response_buf).await.unwrap();
 
         let body = response.body().read_to_end().await.unwrap();
 
         assert_eq!(b"HELLO WORLD", body);
+        assert!(conn.is_exhausted());
     }
 
     #[tokio::test]
     async fn can_read_with_content_length_to_other_buffer() {
-        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD");
         let mut header_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut header_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
         let mut body_buf = [0; 200];
         let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
+        assert!(conn.is_exhausted());
     }
 
     #[tokio::test]
     async fn can_discard_with_content_length() {
-        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD".as_slice();
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nHELLO WORLD");
         let mut response_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut response_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut response_buf).await.unwrap();
 
         assert_eq!(11, response.body().discard().await.unwrap());
+        assert!(conn.is_exhausted());
     }
 
     #[tokio::test]
     async fn incorrect_fragment_length_does_not_panic() {
-        let mut response =
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n\n\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut conn = FakeSingleReadConnection::new(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n\n\r\nHELLO WORLD\r\n0\r\n\r\n",
+        );
         let mut header_buf = [0; 200];
 
-        let response = Response::read(&mut response, Method::GET, &mut header_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
         let error = response.body().read_to_end().await.unwrap_err();
 
-        assert!(matches!(error, Error::Codec))
+        assert!(matches!(error, Error::Codec));
     }
 
     #[tokio::test]
     async fn can_read_with_chunked_encoding() {
-        let mut response =
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut conn = FakeSingleReadConnection::new(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n",
+        );
         let mut header_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut header_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
         let mut body_buf = [0; 200];
         let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
+        assert!(conn.is_exhausted());
+    }
+
+    #[tokio::test]
+    async fn can_read_with_chunked_encoding_empty_body() {
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n");
+        let mut header_buf = [0; 200];
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
+
+        let mut body_buf = [0; 200];
+        let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
+
+        assert_eq!(0, len);
+        assert!(conn.is_exhausted());
     }
 
     #[tokio::test]
     async fn can_discard_with_chunked_encoding() {
-        let mut response =
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut conn = FakeSingleReadConnection::new(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n",
+        );
         let mut header_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut header_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
         assert_eq!(11, response.body().discard().await.unwrap());
+        assert!(conn.is_exhausted());
     }
 
     #[tokio::test]
     async fn can_read_to_end_of_connection_with_same_buffer() {
-        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD");
         let mut header_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut header_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
         let body = response.body().read_to_end().await.unwrap();
 
         assert_eq!(b"HELLO WORLD", body);
+        assert!(conn.is_exhausted());
     }
 
     #[tokio::test]
     async fn can_read_to_end_of_connection_to_other_buffer() {
-        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD");
         let mut header_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut header_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
         let mut body_buf = [0; 200];
         let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
+        assert!(conn.is_exhausted());
     }
 
     #[tokio::test]
     async fn can_discard_to_end_of_connection() {
-        let mut response = b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD".as_slice();
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD");
         let mut header_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut header_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
         assert_eq!(11, response.body().discard().await.unwrap());
+        assert!(conn.is_exhausted());
     }
 
     #[tokio::test]
@@ -844,5 +858,36 @@ mod tests {
         assert_eq!(0, reader.read(&mut buf).await.unwrap());
         assert_eq!(0, reader.read(&mut buf).await.unwrap());
         assert_eq!(b"XYYYYYYYYYYYYYYYY", &body);
+    }
+
+    struct FakeSingleReadConnection {
+        response: &'static [u8],
+        offset: usize,
+    }
+
+    impl FakeSingleReadConnection {
+        pub fn new(response: &'static [u8]) -> Self {
+            Self { response, offset: 0 }
+        }
+
+        pub fn is_exhausted(&self) -> bool {
+            self.offset == self.response.len()
+        }
+    }
+
+    impl ErrorType for FakeSingleReadConnection {
+        type Error = Infallible;
+    }
+
+    impl Read for FakeSingleReadConnection {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            if self.is_exhausted() || buf.is_empty() {
+                return Ok(0);
+            }
+
+            buf[0] = self.response[self.offset];
+            self.offset += 1;
+            return Ok(1);
+        }
     }
 }
