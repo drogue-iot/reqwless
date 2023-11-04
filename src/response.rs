@@ -689,6 +689,9 @@ impl From<u16> for Status {
 
 #[cfg(test)]
 mod tests {
+    use core::convert::Infallible;
+
+    use embedded_io::ErrorType;
     use embedded_io_async::Read;
 
     use crate::{
@@ -753,17 +756,35 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_with_chunked_encoding() {
-        let mut response =
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice();
+        let mut conn = FakeConnection::new([
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n".as_slice(),
+        ]);
         let mut header_buf = [0; 200];
-        let response = Response::read(&mut response, Method::GET, &mut header_buf)
-            .await
-            .unwrap();
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
         let mut body_buf = [0; 200];
         let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
 
+        assert!(conn.is_exhausted());
+        assert_eq!(1, conn.read_calls);
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
+    }
+
+    #[tokio::test]
+    async fn can_read_with_chunked_encoding_empty_body() {
+        let mut conn = FakeConnection::new([
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n",
+            b"0\r\n\r\n".as_slice(),
+        ]);
+        let mut header_buf = [0; 200];
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
+
+        let mut body_buf = [0; 200];
+        let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
+
+        assert!(conn.is_exhausted());
+        assert_eq!(5, conn.read_calls);
+        assert_eq!(0, len);
     }
 
     #[tokio::test]
@@ -817,6 +838,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chunked_body_reader_can_read_empty() {
+        let mut raw_body = b"0\r\n\r\n".as_slice();
+        let mut read_buffer = [0; 128];
+        let mut reader = ChunkedBodyReader {
+            raw_body: BufferingReader::new(&mut read_buffer, 0, &mut raw_body),
+            chunk_remaining: ChunkState::NoChunk,
+        };
+
+        let mut body = [0; 1];
+        assert_eq!(0, reader.read(&mut body).await.unwrap());
+    }
+
+    #[tokio::test]
     async fn chunked_body_reader_can_read_with_large_buffer() {
         let mut raw_body = b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_slice();
         let mut read_buffer = [0; 128];
@@ -853,5 +887,49 @@ mod tests {
         assert_eq!(0, reader.read(&mut buf).await.unwrap());
         assert_eq!(0, reader.read(&mut buf).await.unwrap());
         assert_eq!(b"XYYYYYYYYYYYYYYYY", &body);
+    }
+
+    struct FakeConnection<const N: usize> {
+        chunks: [&'static [u8]; N],
+        chunk_index: usize,
+        chunk_offset: usize,
+        read_calls: usize,
+    }
+
+    impl<const N: usize> FakeConnection<N> {
+        pub fn new(response: [&'static [u8]; N]) -> Self {
+            Self {
+                chunks: response,
+                chunk_index: 0,
+                chunk_offset: 0,
+                read_calls: 0,
+            }
+        }
+
+        pub fn is_exhausted(&self) -> bool {
+            self.chunk_index == self.chunks.len()
+        }
+    }
+
+    impl<const N: usize> ErrorType for FakeConnection<N> {
+        type Error = Infallible;
+    }
+
+    impl<const N: usize> Read for FakeConnection<N> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            if self.chunk_index > self.chunks.len() {
+                self.read_calls += 1;
+                return Ok(0);
+            }
+            let len = core::cmp::min(self.chunks[self.chunk_index].len() - self.chunk_offset, buf.len());
+            buf[..len].copy_from_slice(&self.chunks[self.chunk_index][self.chunk_offset..self.chunk_offset + len]);
+            self.chunk_offset += len;
+            if self.chunk_offset == self.chunks[self.chunk_index].len() {
+                self.chunk_index += 1;
+                self.chunk_offset = 0;
+            }
+            self.read_calls += 1;
+            Ok(len)
+        }
     }
 }
