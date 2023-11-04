@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+* Fix regression introduced in v0.9.0 when reading chunked body where the final newline is not read (#58)
+
 ## [v0.9.0](https://github.com/drogue-iot/reqwless/compare/v0.8.0...v0.9.0) (2023-10-30)
 
 ### Fixes
