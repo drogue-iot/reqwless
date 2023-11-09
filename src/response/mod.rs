@@ -592,6 +592,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn can_read_to_end_with_chunked_encoding() {
+        let mut conn = FakeSingleReadConnection::new(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHELLO\r\n6\r\n WORLD\r\n0\r\n\r\n",
+        );
+        let mut header_buf = [0; 200];
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
+
+        let body = response.body().read_to_end().await.unwrap();
+
+        assert_eq!(b"HELLO WORLD", body);
+        assert!(conn.is_exhausted());
+    }
+
+    #[tokio::test]
     async fn can_read_to_end_of_connection_with_same_buffer() {
         let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 200 OK\r\n\r\nHELLO WORLD");
         let mut header_buf = [0; 200];
