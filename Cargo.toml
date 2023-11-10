@@ -1,6 +1,6 @@
 [package]
 name = "reqwless"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2021"
 resolver = "2"
 description = "HTTP client for embedded devices"
@@ -16,7 +16,7 @@ exclude = [".github"]
 buffered-io = { version = "0.4.0", features = ["async"] }
 embedded-io = { version = "0.6" }
 embedded-io-async = { version = "0.6" }
-embedded-nal-async = "0.6.0"
+embedded-nal-async = "0.7.0"
 httparse = { version = "1.8.0", default-features = false }
 heapless = "0.7"
 hex = { version = "0.4", default-features = false }

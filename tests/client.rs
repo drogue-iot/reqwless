@@ -331,7 +331,7 @@ impl embedded_nal_async::Dns for LoopbackDns {
         Ok(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
     }
 
-    async fn get_host_by_address(&self, _: IpAddr) -> Result<heapless::String<256>, Self::Error> {
+    async fn get_host_by_address(&self, _: IpAddr, _: &mut [u8]) -> Result<usize, Self::Error> {
         Err(TestError)
     }
 }
@@ -356,7 +356,7 @@ impl embedded_nal_async::Dns for StdDns {
         Err(std::io::ErrorKind::AddrNotAvailable.into())
     }
 
-    async fn get_host_by_address(&self, _addr: IpAddr) -> Result<heapless::String<256>, Self::Error> {
+    async fn get_host_by_address(&self, _: IpAddr, _: &mut [u8]) -> Result<usize, Self::Error> {
         todo!()
     }
 }
@@ -375,10 +375,10 @@ impl embedded_nal_async::TcpConnect for TokioTcp {
     type Error = std::io::Error;
     type Connection<'m> = FromTokio<TcpStream>;
 
-    async fn connect<'m>(&'m self, remote: embedded_nal_async::SocketAddr) -> Result<Self::Connection<'m>, Self::Error>
-    where
-        Self: 'm,
-    {
+    async fn connect<'m>(
+        &'m self,
+        remote: embedded_nal_async::SocketAddr,
+    ) -> Result<Self::Connection<'m>, Self::Error> {
         let ip = match remote {
             embedded_nal_async::SocketAddr::V4(a) => a.ip().octets().into(),
             embedded_nal_async::SocketAddr::V6(a) => a.ip().octets().into(),
