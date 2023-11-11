@@ -7,7 +7,7 @@ use crate::reader::BufferingReader;
 use crate::request::Method;
 use crate::response::chunked::ChunkedBodyReader;
 use crate::response::fixed_length::FixedLengthBodyReader;
-use crate::Error;
+use crate::{Error, TryBufRead};
 
 mod chunked;
 mod fixed_length;
@@ -196,6 +196,7 @@ where
     pub body_buf: &'buf mut [u8],
 }
 
+#[derive(Clone, Copy)]
 enum ReaderHint {
     Empty,
     FixedLength(usize),
@@ -203,14 +204,9 @@ enum ReaderHint {
     ToEnd, // https://www.rfc-editor.org/rfc/rfc7230#section-3.3.3 pt. 7: Until end of connection
 }
 
-impl<'resp, 'buf, C> ResponseBody<'resp, 'buf, C>
-where
-    C: Read,
-{
-    pub fn reader(self) -> BodyReader<BufferingReader<'resp, 'buf, C>> {
-        let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
-
-        match self.reader_hint {
+impl ReaderHint {
+    fn reader<R: Read>(self, raw_body: R) -> BodyReader<R> {
+        match self {
             ReaderHint::Empty => BodyReader::Empty,
             ReaderHint::FixedLength(content_length) => BodyReader::FixedLength(FixedLengthBodyReader {
                 raw_body,
@@ -225,6 +221,17 @@ where
 impl<'resp, 'buf, C> ResponseBody<'resp, 'buf, C>
 where
     C: Read,
+{
+    pub fn reader(self) -> BodyReader<BufferingReader<'resp, 'buf, C>> {
+        let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
+
+        self.reader_hint.reader(raw_body)
+    }
+}
+
+impl<'resp, 'buf, C> ResponseBody<'resp, 'buf, C>
+where
+    C: Read + TryBufRead,
 {
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
@@ -286,6 +293,15 @@ impl<B> BodyReader<B>
 where
     B: Read,
 {
+    fn is_done(&self) -> bool {
+        match self {
+            BodyReader::Empty => true,
+            BodyReader::FixedLength(reader) => reader.remaining == 0,
+            BodyReader::Chunked(reader) => reader.is_done(),
+            BodyReader::ToEnd(_) => true,
+        }
+    }
+
     /// Read the entire body
     pub async fn read_to_end(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let mut len = 0;
@@ -297,21 +313,12 @@ where
             }
         }
 
-        let is_done = match self {
-            BodyReader::Empty => true,
-            BodyReader::FixedLength(reader) => {
-                if reader.remaining > 0 {
-                    warn!("FixedLength: {} bytes remained", reader.remaining);
-                }
-                reader.remaining == 0
-            }
-            BodyReader::Chunked(reader) => reader.is_done(),
-            BodyReader::ToEnd(_) => true,
-        };
-
-        if is_done {
+        if self.is_done() {
             Ok(len)
         } else {
+            if let BodyReader::FixedLength(reader) = self {
+                warn!("FixedLength: {} bytes remained", reader.remaining);
+            }
             Err(Error::BufferTooSmall)
         }
     }
@@ -476,7 +483,7 @@ mod tests {
         reader::BufferingReader,
         request::Method,
         response::{chunked::ChunkedBodyReader, Response},
-        Error,
+        Error, TryBufRead,
     };
 
     #[tokio::test]
@@ -691,4 +698,6 @@ mod tests {
             Ok(len)
         }
     }
+
+    impl TryBufRead for FakeSingleReadConnection {}
 }

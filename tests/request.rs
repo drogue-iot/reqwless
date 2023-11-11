@@ -9,6 +9,10 @@ use std::sync::Once;
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 
+mod connection;
+
+use connection::*;
+
 static INIT: Once = Once::new();
 
 fn setup() {
@@ -36,7 +40,7 @@ async fn test_request_response() {
     });
 
     let stream = TcpStream::connect(addr).await.unwrap();
-    let mut stream = HttpConnection::Plain(FromTokio::new(stream));
+    let mut stream = HttpConnection::Plain(TokioStream(FromTokio::new(stream)));
 
     let request = Request::post("/")
         .body(b"PING".as_slice())

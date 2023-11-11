@@ -31,7 +31,7 @@ impl ChunkState {
 
 /// Chunked response body reader
 pub struct ChunkedBodyReader<B> {
-    raw_body: B,
+    pub raw_body: B,
     chunk_remaining: ChunkState,
 }
 

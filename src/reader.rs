@@ -1,7 +1,7 @@
 use embedded_io::{Error, ErrorKind, ErrorType};
-use embedded_io_async::{BufRead, Read, Write};
+use embedded_io_async::{BufRead, Read};
 
-use crate::client::HttpConnection;
+use crate::TryBufRead;
 
 struct ReadBuffer<'buf> {
     buffer: &'buf mut [u8],
@@ -83,20 +83,22 @@ where
     }
 }
 
-impl<C> BufRead for BufferingReader<'_, '_, HttpConnection<'_, C>>
+impl<C> BufRead for BufferingReader<'_, '_, C>
 where
-    C: Read + Write,
+    C: TryBufRead,
 {
     async fn fill_buf(&mut self) -> Result<&[u8], ErrorKind> {
         // We need to consume the loaded bytes before we read mode.
         if self.buffer.is_empty() {
-            // embedded-tls has its own internal buffer, let's prefer that if we can
-            #[cfg(feature = "embedded-tls")]
-            if let HttpConnection::Tls(ref mut tls) = self.stream {
-                return tls.fill_buf().await.map_err(|e| e.kind());
+            // The matches/if let dance is to fix lifetime of the borrowed inner connection.
+            if self.stream.try_fill_buf().await.is_some() {
+                if let Some(result) = self.stream.try_fill_buf().await {
+                    return result.map_err(|e| e.kind());
+                }
+                unreachable!()
             }
 
-            self.buffer.loaded = self.stream.read(&mut self.buffer.buffer).await?;
+            self.buffer.loaded = self.stream.read(&mut self.buffer.buffer).await.map_err(|e| e.kind())?;
         }
 
         self.buffer.fill_buf()
@@ -109,10 +111,7 @@ where
         let unconsumed = self.buffer.consume(amt);
 
         if unconsumed > 0 {
-            #[cfg(feature = "embedded-tls")]
-            if let HttpConnection::Tls(tls) = &mut self.stream {
-                tls.consume(unconsumed);
-            }
+            self.stream.try_consume(unconsumed);
         }
     }
 }
