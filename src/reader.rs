@@ -3,9 +3,9 @@ use embedded_io_async::{BufRead, Read};
 
 use crate::TryBufRead;
 
-struct ReadBuffer<'buf> {
-    buffer: &'buf mut [u8],
-    loaded: usize,
+pub struct ReadBuffer<'buf> {
+    pub buffer: &'buf mut [u8],
+    pub loaded: usize,
 }
 
 impl<'buf> ReadBuffer<'buf> {
@@ -46,8 +46,8 @@ pub struct BufferingReader<'resp, 'buf, B>
 where
     B: Read,
 {
-    buffer: ReadBuffer<'buf>,
-    stream: &'resp mut B,
+    pub buffer: ReadBuffer<'buf>,
+    pub stream: &'resp mut B,
 }
 
 impl<'resp, 'buf, B> BufferingReader<'resp, 'buf, B>

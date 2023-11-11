@@ -1,8 +1,11 @@
 use embedded_io_async::{BufRead, Error as _, ErrorType, Read};
 
-use crate::Error;
+use crate::{
+    reader::{BufferingReader, ReadBuffer},
+    Error, TryBufRead,
+};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ChunkState {
     NoChunk,
     NotEmpty(u32),
@@ -130,6 +133,56 @@ where
         }
 
         Ok(self.chunk_remaining.len())
+    }
+}
+
+impl<'conn, 'buf, C> ChunkedBodyReader<BufferingReader<'conn, 'buf, C>>
+where
+    C: Read + TryBufRead,
+{
+    pub(crate) async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
+        let buffer = self.raw_body.buffer.buffer;
+
+        // We reconstruct the reader to change the 'buf lifetime.
+        let mut reader = ChunkedBodyReader {
+            raw_body: BufferingReader {
+                buffer: ReadBuffer {
+                    buffer: &mut buffer[..],
+                    loaded: self.raw_body.buffer.loaded,
+                },
+                stream: self.raw_body.stream,
+            },
+            chunk_remaining: self.chunk_remaining,
+        };
+
+        let mut len = 0;
+        while len < reader.raw_body.buffer.buffer.len() {
+            // Read some
+            let read = reader.fill_buf().await?.len();
+            len += read;
+
+            // Make sure we don't erase the newly read data
+            let was_loaded = reader.raw_body.buffer.loaded;
+            let fake_loaded = read.min(was_loaded);
+            reader.raw_body.buffer.loaded = fake_loaded;
+
+            // Consume the returned buffer
+            reader.consume(read);
+
+            if reader.is_done() {
+                // If we're done, we don't care about the rest of the housekeeping.
+                break;
+            }
+
+            // How many bytes were actually consumed from the preloaded buffer?
+            let consumed_from_buffer = fake_loaded - reader.raw_body.buffer.loaded;
+
+            // ... move the buffer by that many bytes to avoid overwriting in the next iteration.
+            reader.raw_body.buffer.loaded = was_loaded - consumed_from_buffer;
+            reader.raw_body.buffer.buffer = &mut reader.raw_body.buffer.buffer[consumed_from_buffer..];
+        }
+
+        Ok(&mut buffer[..len])
     }
 }
 

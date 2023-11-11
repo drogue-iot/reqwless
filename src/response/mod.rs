@@ -253,7 +253,10 @@ where
 
                 Ok(&mut self.body_buf[..content_length])
             }
-            ReaderHint::Chunked => Err(Error::Codec),
+            ReaderHint::Chunked => {
+                let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
+                ChunkedBodyReader::new(raw_body).read_to_end().await
+            }
             ReaderHint::ToEnd => {
                 let mut body_len = self.raw_body_read;
                 loop {
@@ -596,6 +599,7 @@ mod tests {
         let mut conn = FakeSingleReadConnection::new(
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHELLO\r\n6\r\n WORLD\r\n0\r\n\r\n",
         );
+        conn.read_length = 10;
         let mut header_buf = [0; 200];
         let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
