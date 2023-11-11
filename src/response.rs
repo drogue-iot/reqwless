@@ -749,8 +749,24 @@ mod tests {
     #[tokio::test]
     async fn can_read_with_chunked_encoding() {
         let mut conn = FakeSingleReadConnection::new(
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nHELLO WORLD\r\n0\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHELLO\r\n6\r\n WORLD\r\n0\r\n\r\n",
         );
+        let mut header_buf = [0; 200];
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
+
+        let mut body_buf = [0; 200];
+        let len = response.body().reader().read_to_end(&mut body_buf).await.unwrap();
+
+        assert_eq!(b"HELLO WORLD", &body_buf[..len]);
+        assert!(conn.is_exhausted());
+    }
+
+    #[tokio::test]
+    async fn can_read_chunked_with_preloaded() {
+        let mut conn = FakeSingleReadConnection::new(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHELLO\r\n6\r\n WORLD\r\n0\r\n\r\n",
+        );
+        conn.read_length = 100;
         let mut header_buf = [0; 200];
         let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
 
@@ -863,11 +879,17 @@ mod tests {
     struct FakeSingleReadConnection {
         response: &'static [u8],
         offset: usize,
+        /// The fake connection will provide at most this many bytes per read
+        read_length: usize,
     }
 
     impl FakeSingleReadConnection {
         pub fn new(response: &'static [u8]) -> Self {
-            Self { response, offset: 0 }
+            Self {
+                response,
+                offset: 0,
+                read_length: 1,
+            }
         }
 
         pub fn is_exhausted(&self) -> bool {
@@ -885,9 +907,12 @@ mod tests {
                 return Ok(0);
             }
 
-            buf[0] = self.response[self.offset];
-            self.offset += 1;
-            return Ok(1);
+            let loaded = &self.response[self.offset..];
+            let len = self.read_length.min(buf.len()).min(loaded.len());
+            buf[..len].copy_from_slice(&loaded[..len]);
+            self.offset += len;
+
+            Ok(len)
         }
     }
 }
