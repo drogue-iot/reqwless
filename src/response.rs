@@ -822,6 +822,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chunked_body_reader_can_read_preloaded() {
+        let mut read_buffer: Vec<u8> = Vec::new();
+        read_buffer.extend_from_slice(b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n");
+        let preloaded = read_buffer.len();
+        let mut empty_body = [0; 0].as_slice();
+        let mut reader = ChunkedBodyReader {
+            raw_body: BufferingReader::new(&mut read_buffer, preloaded, &mut empty_body),
+            chunk_remaining: ChunkState::NoChunk,
+        };
+
+        let mut body = [0; 17];
+        reader.read_exact(&mut body).await.unwrap();
+
+        assert_eq!(0, reader.read(&mut body).await.unwrap());
+        assert_eq!(0, reader.read(&mut body).await.unwrap());
+        assert_eq!(b"XYYYYYYYYYYYYYYYY", &body);
+    }
+
+    #[tokio::test]
     async fn chunked_body_reader_can_read_with_large_buffer() {
         let mut raw_body = b"1\r\nX\r\n10\r\nYYYYYYYYYYYYYYYY\r\n0\r\n\r\n".as_slice();
         let mut read_buffer = [0; 128];
