@@ -235,11 +235,6 @@ where
 {
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
-    ///
-    /// This is not valid for chunked responses as it requires that the body bytes over-read
-    /// while parsing the http response header would be available for the body reader.
-    /// For this case, or if the original buffer is not large enough, use
-    /// [`BodyReader::read_to_end()`] instead from the reader returned by [`ResponseBody::reader()`].
     pub async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
         // We can only read responses with Content-Length header to end using the body_buf buffer,
         // as any other response would require the body reader to know the entire body.
