@@ -156,7 +156,7 @@ where
         };
 
         let mut len = 0;
-        while len < reader.raw_body.buffer.buffer.len() {
+        while !reader.raw_body.buffer.buffer.is_empty() {
             // Read some
             let read = reader.fill_buf().await?.len();
             len += read;
