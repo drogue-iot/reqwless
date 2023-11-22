@@ -235,7 +235,7 @@ where
 {
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
-    pub async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
+    pub async fn read_to_end(mut self) -> Result<&'buf mut [u8], Error> {
         match self.reader_hint {
             ReaderHint::Empty => Ok(&mut []),
             ReaderHint::FixedLength(content_length) => {
@@ -253,7 +253,7 @@ where
                 ChunkedBodyReader::new(raw_body).read_to_end().await
             }
             ReaderHint::ToEnd => {
-                let read = BodyReader::ToEnd(self.conn)
+                let read = BodyReader::ToEnd(&mut self.conn)
                     .read_to_end(&mut self.body_buf[self.raw_body_read..])
                     .await?;
 
@@ -287,7 +287,7 @@ where
             BodyReader::Empty => true,
             BodyReader::FixedLength(reader) => reader.remaining == 0,
             BodyReader::Chunked(reader) => reader.is_done(),
-            BodyReader::ToEnd(_) => true,
+            BodyReader::ToEnd(_) => false,
         }
     }
 
@@ -302,14 +302,29 @@ where
             }
         }
 
-        if self.is_done() {
-            Ok(len)
-        } else {
-            if let BodyReader::FixedLength(reader) = self {
-                warn!("FixedLength: {} bytes remained", reader.remaining);
+        if !self.is_done() {
+            let more = match self {
+                BodyReader::FixedLength(reader) => {
+                    warn!("FixedLength: {} bytes remained", reader.remaining);
+                    true
+                }
+                BodyReader::ToEnd(reader) if len == buf.len() => {
+                    warn!("ToEnd: Buffer full, waiting to see if there is unread data.");
+
+                    let mut b = [0];
+                    matches!(reader.read(&mut b).await, Ok(1))
+                }
+
+                BodyReader::ToEnd(_) => false,
+                _ => true,
+            };
+
+            if more {
+                return Err(Error::BufferTooSmall);
             }
-            Err(Error::BufferTooSmall)
         }
+
+        Ok(len)
     }
 
     async fn discard(&mut self) -> Result<usize, Error> {
