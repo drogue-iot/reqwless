@@ -236,43 +236,28 @@ where
     /// Read the entire body into the buffer originally provided [`Response::read()`].
     /// This requires that this original buffer is large enough to contain the entire body.
     pub async fn read_to_end(self) -> Result<&'buf mut [u8], Error> {
-        // We can only read responses with Content-Length header to end using the body_buf buffer,
-        // as any other response would require the body reader to know the entire body.
         match self.reader_hint {
             ReaderHint::Empty => Ok(&mut []),
             ReaderHint::FixedLength(content_length) => {
-                // Read into the buffer after the portion that was already received when parsing the header
-                let to_read = self.body_buf.len().min(content_length);
-                self.conn
-                    .read_exact(&mut self.body_buf[self.raw_body_read..to_read])
-                    .await?;
+                let read = BodyReader::FixedLength(FixedLengthBodyReader {
+                    raw_body: self.conn,
+                    remaining: content_length - self.raw_body_read,
+                })
+                .read_to_end(&mut self.body_buf[self.raw_body_read..])
+                .await?;
 
-                if content_length > self.body_buf.len() {
-                    warn!("FixedLength: {} bytes remained", content_length - self.body_buf.len());
-                    return Err(Error::BufferTooSmall);
-                }
-
-                Ok(&mut self.body_buf[..content_length])
+                Ok(&mut self.body_buf[..read + self.raw_body_read])
             }
             ReaderHint::Chunked => {
                 let raw_body = BufferingReader::new(self.body_buf, self.raw_body_read, self.conn);
                 ChunkedBodyReader::new(raw_body).read_to_end().await
             }
             ReaderHint::ToEnd => {
-                let mut body_len = self.raw_body_read;
-                loop {
-                    let len = self
-                        .conn
-                        .read(&mut self.body_buf[body_len..])
-                        .await
-                        .map_err(|e| e.kind())?;
-                    if len == 0 {
-                        break;
-                    }
-                    body_len += len;
-                }
+                let read = BodyReader::ToEnd(self.conn)
+                    .read_to_end(&mut self.body_buf[self.raw_body_read..])
+                    .await?;
 
-                Ok(&mut self.body_buf[..body_len])
+                Ok(&mut self.body_buf[..read + self.raw_body_read])
             }
         }
     }
