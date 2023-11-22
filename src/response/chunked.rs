@@ -182,6 +182,10 @@ where
             reader.raw_body.buffer.buffer = &mut reader.raw_body.buffer.buffer[consumed_from_buffer..];
         }
 
+        if !reader.is_done() {
+            return Err(Error::BufferTooSmall);
+        }
+
         Ok(&mut buffer[..len])
     }
 }

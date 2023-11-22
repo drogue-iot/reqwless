@@ -242,9 +242,15 @@ where
             ReaderHint::Empty => Ok(&mut []),
             ReaderHint::FixedLength(content_length) => {
                 // Read into the buffer after the portion that was already received when parsing the header
+                let to_read = self.body_buf.len().min(content_length);
                 self.conn
-                    .read_exact(&mut self.body_buf[self.raw_body_read..content_length])
+                    .read_exact(&mut self.body_buf[self.raw_body_read..to_read])
                     .await?;
+
+                if content_length > self.body_buf.len() {
+                    warn!("FixedLength: {} bytes remained", content_length - self.body_buf.len());
+                    return Err(Error::BufferTooSmall);
+                }
 
                 Ok(&mut self.body_buf[..content_length])
             }
@@ -507,6 +513,22 @@ mod tests {
 
         assert_eq!(b"HELLO WORLD", &body_buf[..len]);
         assert!(conn.is_exhausted());
+    }
+
+    #[tokio::test]
+    async fn read_to_end_with_content_length_with_small_buffer() {
+        let mut conn = FakeSingleReadConnection::new(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 52\r\n\r\nHELLO WORLD this is some longer response for testing",
+        );
+        let mut header_buf = [0; 40];
+        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
+
+        let body = response.body().read_to_end().await.expect_err("Failure expected");
+
+        match body {
+            Error::BufferTooSmall => {}
+            e => panic!("Unexpected error: {e:?}"),
+        }
     }
 
     #[tokio::test]

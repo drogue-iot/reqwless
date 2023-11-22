@@ -3,6 +3,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
 use reqwless::client::HttpConnection;
 use reqwless::request::{Method, RequestBuilder};
+use reqwless::Error;
 use reqwless::{headers::ContentType, request::Request, response::Response};
 use std::str::from_utf8;
 use std::sync::Once;
@@ -91,6 +92,13 @@ async fn google_panic() {
 
     let mut rx_buf = [0; 8 * 1024];
     let resp = Response::read(&mut conn, Method::GET, &mut rx_buf).await.unwrap();
-    let body = resp.body().read_to_end().await.unwrap();
-    println!("{} -> {}", body.len(), core::str::from_utf8(&body).unwrap());
+    let result = resp.body().read_to_end().await;
+
+    match result {
+        Ok(body) => {
+            println!("{} -> {}", body.len(), core::str::from_utf8(&body).unwrap());
+        }
+        Err(Error::BufferTooSmall) => println!("Buffer too small"),
+        Err(e) => panic!("Unexpected error: {e:?}"),
+    }
 }
