@@ -18,7 +18,7 @@ embedded-io = { version = "0.6" }
 embedded-io-async = { version = "0.6" }
 embedded-nal-async = "0.7.0"
 httparse = { version = "1.8.0", default-features = false }
-heapless = "0.7"
+heapless = "0.8"
 hex = { version = "0.4", default-features = false }
 base64 = { version = "0.21.0", default-features = false }
 rand_core = { version = "0.6", default-features = true }
