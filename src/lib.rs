@@ -90,3 +90,36 @@ impl From<nourl::Error> for Error {
         Error::InvalidUrl(e)
     }
 }
+
+/// Trait for types that may optionally implement [`embedded_io_async::BufRead`]
+pub trait TryBufRead: embedded_io_async::Read {
+    async fn try_fill_buf(&mut self) -> Option<Result<&[u8], Self::Error>> {
+        None
+    }
+
+    fn try_consume(&mut self, _amt: usize) {}
+}
+
+impl<C> TryBufRead for crate::client::HttpConnection<'_, C>
+where
+    C: embedded_io_async::Read + embedded_io_async::Write,
+{
+    async fn try_fill_buf(&mut self) -> Option<Result<&[u8], Self::Error>> {
+        // embedded-tls has its own internal buffer, let's prefer that if we can
+        #[cfg(feature = "embedded-tls")]
+        if let Self::Tls(ref mut tls) = self {
+            use embedded_io_async::{BufRead, Error};
+            return Some(tls.fill_buf().await.map_err(|e| e.kind()));
+        }
+
+        None
+    }
+
+    fn try_consume(&mut self, amt: usize) {
+        #[cfg(feature = "embedded-tls")]
+        if let Self::Tls(tls) = self {
+            use embedded_io_async::BufRead;
+            tls.consume(amt);
+        }
+    }
+}

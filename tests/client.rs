@@ -1,8 +1,6 @@
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
-use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_io_async::BufRead;
-use embedded_nal_async::{AddrType, IpAddr, Ipv4Addr};
 use hyper::server::conn::Http;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
@@ -12,13 +10,16 @@ use reqwless::client::HttpClient;
 use reqwless::headers::ContentType;
 use reqwless::request::{Method, RequestBuilder};
 use reqwless::response::Status;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::sync::Once;
 use tokio::net::TcpListener;
-use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tokio_rustls::rustls;
 use tokio_rustls::TlsAcceptor;
+
+mod connection;
+
+use connection::*;
 
 static INIT: Once = Once::new();
 
@@ -321,73 +322,6 @@ fn load_private_key(filename: &std::path::PathBuf) -> rustls::PrivateKey {
     }
 
     panic!("no keys found in {:?} (encrypted keys not supported)", filename);
-}
-
-struct LoopbackDns;
-impl embedded_nal_async::Dns for LoopbackDns {
-    type Error = TestError;
-
-    async fn get_host_by_name(&self, _: &str, _: AddrType) -> Result<IpAddr, Self::Error> {
-        Ok(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
-    }
-
-    async fn get_host_by_address(&self, _: IpAddr, _: &mut [u8]) -> Result<usize, Self::Error> {
-        Err(TestError)
-    }
-}
-
-struct StdDns;
-
-impl embedded_nal_async::Dns for StdDns {
-    type Error = std::io::Error;
-
-    async fn get_host_by_name(&self, host: &str, addr_type: AddrType) -> Result<IpAddr, Self::Error> {
-        for address in (host, 0).to_socket_addrs()? {
-            match address {
-                SocketAddr::V4(a) if addr_type == AddrType::IPv4 || addr_type == AddrType::Either => {
-                    return Ok(IpAddr::V4(a.ip().octets().into()))
-                }
-                SocketAddr::V6(a) if addr_type == AddrType::IPv6 || addr_type == AddrType::Either => {
-                    return Ok(IpAddr::V6(a.ip().octets().into()))
-                }
-                _ => {}
-            }
-        }
-        Err(std::io::ErrorKind::AddrNotAvailable.into())
-    }
-
-    async fn get_host_by_address(&self, _: IpAddr, _: &mut [u8]) -> Result<usize, Self::Error> {
-        todo!()
-    }
-}
-
-struct TokioTcp;
-#[derive(Debug)]
-struct TestError;
-
-impl embedded_io::Error for TestError {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
-    }
-}
-
-impl embedded_nal_async::TcpConnect for TokioTcp {
-    type Error = std::io::Error;
-    type Connection<'m> = FromTokio<TcpStream>;
-
-    async fn connect<'m>(
-        &'m self,
-        remote: embedded_nal_async::SocketAddr,
-    ) -> Result<Self::Connection<'m>, Self::Error> {
-        let ip = match remote {
-            embedded_nal_async::SocketAddr::V4(a) => a.ip().octets().into(),
-            embedded_nal_async::SocketAddr::V6(a) => a.ip().octets().into(),
-        };
-        let remote = SocketAddr::new(ip, remote.port());
-        let stream = TcpStream::connect(remote).await?;
-        let stream = FromTokio::new(stream);
-        Ok(stream)
-    }
 }
 
 async fn echo(req: hyper::Request<Body>) -> Result<hyper::Response<Body>, hyper::Error> {
