@@ -1,6 +1,6 @@
 [package]
 name = "reqwless"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 resolver = "2"
 description = "HTTP client for embedded devices"
@@ -13,7 +13,7 @@ keywords = ["embedded", "async", "http", "no_std"]
 exclude = [".github"]
 
 [dependencies]
-buffered-io = { version = "0.4.0", features = ["async"] }
+buffered-io = { version = "0.5" }
 embedded-io = { version = "0.6" }
 embedded-io-async = { version = "0.6" }
 embedded-nal-async = "0.7.0"
@@ -24,9 +24,7 @@ base64 = { version = "0.21.0", default-features = false }
 rand_core = { version = "0.6", default-features = true }
 log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
-embedded-tls = { version = "0.16", default-features = false, features = [
-    "async",
-], optional = true }
+embedded-tls = { version = "0.17", default-features = false, optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 nourl = "0.1.1"
 

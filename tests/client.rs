@@ -1,5 +1,3 @@
-#![feature(async_fn_in_trait)]
-#![allow(incomplete_features)]
 use embedded_io_async::BufRead;
 use hyper::server::conn::Http;
 use hyper::service::{make_service_fn, service_fn};
