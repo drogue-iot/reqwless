@@ -10,7 +10,7 @@ traits from the `embedded-io` crate. No alloc or std lib required!
 
 It offers two sets of APIs:
 
-* A low-level `request` API which allows you to contruct HTTP requests and write them to a `embedded-io` transport.
+* A low-level `request` API which allows you to construct HTTP requests and write them to a `embedded-io` transport.
 * A higher level `client` API which uses the `embedded-nal-async` (+ optional `embedded-tls`) crates to establish TCP + TLS connections.
 
 ## example
