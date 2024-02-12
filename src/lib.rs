@@ -28,6 +28,9 @@ pub enum Error {
     /// Tls Error
     #[cfg(feature = "embedded-tls")]
     Tls(embedded_tls::TlsError),
+    /// Tls Error
+    #[cfg(feature = "esp-mbedtls")]
+    Tls(esp_mbedtls::TlsError),
     /// The provided buffer is too small
     BufferTooSmall,
     /// The request is already sent
@@ -66,6 +69,17 @@ impl<E: embedded_io::Error> From<ReadExactError<E>> for Error {
 #[cfg(feature = "embedded-tls")]
 impl From<embedded_tls::TlsError> for Error {
     fn from(e: embedded_tls::TlsError) -> Error {
+        Error::Tls(e)
+    }
+}
+
+/// Re-export those members since they're used for [client::TlsConfig].
+#[cfg(feature = "esp-mbedtls")]
+pub use esp_mbedtls::{Certificates, Rsa, TlsVersion, X509};
+
+#[cfg(feature = "esp-mbedtls")]
+impl From<esp_mbedtls::TlsError> for Error {
+    fn from(e: esp_mbedtls::TlsError) -> Error {
         Error::Tls(e)
     }
 }
