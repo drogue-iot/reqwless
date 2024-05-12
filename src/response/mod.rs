@@ -22,6 +22,8 @@ where
     conn: &'resp mut C,
     /// The method used to create the response.
     method: Method,
+    /// The HTTP response status code, as an integer
+    pub code: u16,
     /// The HTTP response status code.
     pub status: Status,
     /// The HTTP response content type.
@@ -81,7 +83,8 @@ where
         let mut response = httparse::Response::new(&mut headers);
         response.parse(&header_buf[..header_len]).unwrap();
 
-        let status = response.code.unwrap().into();
+        let code = response.code.unwrap();
+        let status = code.into();
         let mut content_type = None;
         let mut content_length = None;
         let mut transfer_encoding = Vec::new();
@@ -119,6 +122,7 @@ where
         Ok(Response {
             conn,
             method,
+            code,
             status,
             content_type,
             content_length,
