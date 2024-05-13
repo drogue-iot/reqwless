@@ -23,7 +23,7 @@ where
     /// The method used to create the response.
     method: Method,
     /// The HTTP response status code.
-    pub status: Status,
+    pub status: StatusCode,
     /// The HTTP response content type.
     pub content_type: Option<ContentType>,
     /// The content length.
@@ -383,10 +383,44 @@ where
     }
 }
 
-/// HTTP status types
-#[derive(Clone, Copy, Debug, Eq)]
+/// An HTTP status code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u16)]
+pub struct StatusCode(pub u16);
+
+impl From<u16> for StatusCode {
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
+}
+
+/// An error returned when trying to convert Status::Unknown into a StatusCode
+#[derive(Debug)]
+pub struct UnknownStatusError;
+
+impl TryFrom<Status> for StatusCode {
+    type Error = UnknownStatusError;
+
+    fn try_from(from: Status) -> Result<StatusCode, UnknownStatusError> {
+        match from {
+            Status::Unknown => Err(UnknownStatusError),
+            _ => Ok(StatusCode(from as u16)),
+        }
+    }
+}
+
+impl PartialEq<Status> for StatusCode {
+    fn eq(&self, rhs: &Status) -> bool {
+        match rhs {
+            Status::Unknown => false,
+            _ => self.0 == (*rhs as u16),
+        }
+    }
+}
+
+/// Enumeration of well-known HTTP status codes
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Status {
     Ok = 200,
     Created = 201,
@@ -412,69 +446,51 @@ pub enum Status {
     BadGateway = 502,
     ServiceUnavailable = 503,
     GatewayTimeout = 504,
-    Other(u16),
+    Unknown = 0,
 }
 
 impl Status {
     pub fn is_informational(&self) -> bool {
-        let status = self.as_u16();
+        let status = *self as u16;
         (100..=199).contains(&status)
     }
 
     pub fn is_successful(&self) -> bool {
-        let status = self.as_u16();
+        let status = *self as u16;
         (200..=299).contains(&status)
     }
 
     pub fn is_redirection(&self) -> bool {
-        let status = self.as_u16();
+        let status = *self as u16;
         (300..=399).contains(&status)
     }
 
     pub fn is_client_error(&self) -> bool {
-        let status = self.as_u16();
+        let status = *self as u16;
         (400..=499).contains(&status)
     }
 
     pub fn is_server_error(&self) -> bool {
-        let status = self.as_u16();
+        let status = *self as u16;
         (500..=599).contains(&status)
     }
+}
 
-    fn as_u16(&self) -> u16 {
-        match self {
-            Status::Ok => 200,
-            Status::Created => 201,
-            Status::Accepted => 202,
-            Status::NoContent => 204,
-            Status::PartialContent => 206,
-            Status::MovedPermanently => 301,
-            Status::Found => 302,
-            Status::SeeOther => 303,
-            Status::NotModified => 304,
-            Status::TemporaryRedirect => 307,
-            Status::PermanentRedirect => 308,
-            Status::BadRequest => 400,
-            Status::Unauthorized => 401,
-            Status::Forbidden => 403,
-            Status::NotFound => 404,
-            Status::MethodNotAllowed => 405,
-            Status::Conflict => 409,
-            Status::UnsupportedMediaType => 415,
-            Status::RangeNotSatisfiable => 416,
-            Status::TooManyRequests => 429,
-            Status::InternalServerError => 500,
-            Status::BadGateway => 502,
-            Status::ServiceUnavailable => 503,
-            Status::GatewayTimeout => 504,
-            Status::Other(n) => *n,
-        }
+impl PartialEq<StatusCode> for Status {
+    fn eq(&self, rhs: &StatusCode) -> bool {
+        rhs == self
     }
 }
 
 impl From<u16> for Status {
     fn from(from: u16) -> Status {
-        match from {
+        StatusCode(from).into()
+    }
+}
+
+impl From<StatusCode> for Status {
+    fn from(from: StatusCode) -> Status {
+        match from.0 {
             200 => Status::Ok,
             201 => Status::Created,
             202 => Status::Accepted,
@@ -499,26 +515,11 @@ impl From<u16> for Status {
             502 => Status::BadGateway,
             503 => Status::ServiceUnavailable,
             504 => Status::GatewayTimeout,
-            n => Status::Other(n),
+            n => {
+                warn!("Unknown status code: {:?}", n);
+                Status::Unknown
+            }
         }
-    }
-}
-
-impl Into<u16> for Status {
-    fn into(self) -> u16 {
-        self.as_u16()
-    }
-}
-
-impl PartialEq<Self> for Status {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.as_u16() == rhs.as_u16()
-    }
-}
-
-impl PartialOrd<Self> for Status {
-     fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
-         self.as_u16().partial_cmp(&rhs.as_u16())
     }
 }
 
@@ -529,6 +530,7 @@ mod tests {
     use embedded_io::ErrorType;
     use embedded_io_async::Read;
 
+    use super::{Status, StatusCode};
     use crate::{
         reader::BufferingReader,
         request::Method,
@@ -796,4 +798,44 @@ mod tests {
     }
 
     impl TryBufRead for FakeSingleReadConnection {}
+
+    #[test]
+    fn status_equality() {
+        // StatusCode and Status values can be compared
+        assert_eq!(StatusCode(200), Status::Ok);
+        assert_eq!(Status::Ok, StatusCode(200));
+        assert_eq!(StatusCode(404), Status::NotFound);
+        assert_eq!(Status::NotFound, StatusCode(404));
+        assert_ne!(Status::Ok, StatusCode(404));
+
+        // Status::Unknown does not compare as equal to any StatusCode value
+        assert_ne!(Status::Unknown, StatusCode(0));
+        assert_ne!(StatusCode(0), Status::Unknown);
+
+        // StatusCode supports comparison of arbitrary values
+        assert_eq!(StatusCode(0), StatusCode(0));
+        assert_eq!(StatusCode(987), StatusCode(987));
+        assert_ne!(StatusCode(123), StatusCode(321));
+    }
+
+    #[test]
+    fn status_try_from() {
+        let s: Status = 200.into();
+        assert_eq!(Status::Ok, s);
+        let s: Status = StatusCode(500).try_into().unwrap();
+        assert_eq!(Status::InternalServerError, s);
+        let s: StatusCode = Status::NotModified.try_into().unwrap();
+        assert_eq!(s, StatusCode(304));
+
+        // Unknown status code values can be converted into Status::Unknown
+        let im_a_teapot: Status = StatusCode(418).into();
+        assert_eq!(Status::Unknown, im_a_teapot);
+        let im_a_teapot: Status = 418.into();
+        assert_eq!(Status::Unknown, im_a_teapot);
+
+        // Converting Status::Unknown back to a StatusCode will fail
+        <Status as TryInto<StatusCode>>::try_into(Status::Unknown).expect_err("Status::Unknown conversion should fail");
+        <Status as TryInto<StatusCode>>::try_into(StatusCode(418).into())
+            .expect_err("Status::Unknown conversion should fail");
+    }
 }
