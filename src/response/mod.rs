@@ -22,8 +22,6 @@ where
     conn: &'resp mut C,
     /// The method used to create the response.
     method: Method,
-    /// The HTTP response status code, as an integer
-    pub code: u16,
     /// The HTTP response status code.
     pub status: Status,
     /// The HTTP response content type.
@@ -83,8 +81,7 @@ where
         let mut response = httparse::Response::new(&mut headers);
         response.parse(&header_buf[..header_len]).unwrap();
 
-        let code = response.code.unwrap();
-        let status = code.into();
+        let status = response.code.unwrap().into();
         let mut content_type = None;
         let mut content_length = None;
         let mut transfer_encoding = Vec::new();
@@ -122,7 +119,6 @@ where
         Ok(Response {
             conn,
             method,
-            code,
             status,
             content_type,
             content_length,
@@ -388,8 +384,9 @@ where
 }
 
 /// HTTP status types
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u16)]
 pub enum Status {
     Ok = 200,
     Created = 201,
@@ -415,33 +412,63 @@ pub enum Status {
     BadGateway = 502,
     ServiceUnavailable = 503,
     GatewayTimeout = 504,
-    Unknown = 0,
+    Other(u16),
 }
 
 impl Status {
     pub fn is_informational(&self) -> bool {
-        let status = *self as u16;
+        let status = self.as_u16();
         (100..=199).contains(&status)
     }
 
     pub fn is_successful(&self) -> bool {
-        let status = *self as u16;
+        let status = self.as_u16();
         (200..=299).contains(&status)
     }
 
     pub fn is_redirection(&self) -> bool {
-        let status = *self as u16;
+        let status = self.as_u16();
         (300..=399).contains(&status)
     }
 
     pub fn is_client_error(&self) -> bool {
-        let status = *self as u16;
+        let status = self.as_u16();
         (400..=499).contains(&status)
     }
 
     pub fn is_server_error(&self) -> bool {
-        let status = *self as u16;
+        let status = self.as_u16();
         (500..=599).contains(&status)
+    }
+
+    fn as_u16(&self) -> u16 {
+        match self {
+            Status::Ok => 200,
+            Status::Created => 201,
+            Status::Accepted => 202,
+            Status::NoContent => 204,
+            Status::PartialContent => 206,
+            Status::MovedPermanently => 301,
+            Status::Found => 302,
+            Status::SeeOther => 303,
+            Status::NotModified => 304,
+            Status::TemporaryRedirect => 307,
+            Status::PermanentRedirect => 308,
+            Status::BadRequest => 400,
+            Status::Unauthorized => 401,
+            Status::Forbidden => 403,
+            Status::NotFound => 404,
+            Status::MethodNotAllowed => 405,
+            Status::Conflict => 409,
+            Status::UnsupportedMediaType => 415,
+            Status::RangeNotSatisfiable => 416,
+            Status::TooManyRequests => 429,
+            Status::InternalServerError => 500,
+            Status::BadGateway => 502,
+            Status::ServiceUnavailable => 503,
+            Status::GatewayTimeout => 504,
+            Status::Other(n) => *n,
+        }
     }
 }
 
@@ -472,11 +499,26 @@ impl From<u16> for Status {
             502 => Status::BadGateway,
             503 => Status::ServiceUnavailable,
             504 => Status::GatewayTimeout,
-            n => {
-                warn!("Unknown status code: {:?}", n);
-                Status::Unknown
-            }
+            n => Status::Other(n),
         }
+    }
+}
+
+impl Into<u16> for Status {
+    fn into(self) -> u16 {
+        self.as_u16()
+    }
+}
+
+impl PartialEq<Self> for Status {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.as_u16() == rhs.as_u16()
+    }
+}
+
+impl PartialOrd<Self> for Status {
+     fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
+         self.as_u16().partial_cmp(&rhs.as_u16())
     }
 }
 
