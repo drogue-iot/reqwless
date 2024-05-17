@@ -106,8 +106,8 @@ impl<'req, B> Request<'req, B>
 where
     B: RequestBody,
 {
-    /// Write request to the I/O stream
-    pub async fn write<C>(&self, c: &mut C) -> Result<(), Error>
+    /// Write request header to the I/O stream
+    pub async fn write_header<C>(&self, c: &mut C) -> Result<(), Error>
     where
         C: Write,
     {
@@ -161,31 +161,6 @@ where
         }
         write_str(c, "\r\n").await?;
         trace!("Header written");
-        if let Some(body) = self.body.as_ref() {
-            match body.len() {
-                Some(0) => {
-                    // Empty body
-                }
-                Some(len) => {
-                    trace!("Writing not-chunked body");
-                    let mut writer = FixedBodyWriter(c, 0);
-                    body.write(&mut writer).await.map_err(to_errorkind)?;
-
-                    if writer.1 != len {
-                        return Err(Error::IncorrectBodyWritten);
-                    }
-                }
-                None => {
-                    trace!("Writing chunked body");
-                    let mut writer = ChunkedBodyWriter(c, 0);
-                    body.write(&mut writer).await?;
-
-                    write_str(c, "0\r\n\r\n").await?;
-                }
-            }
-        }
-
-        c.flush().await.map_err(|e| e.kind())?;
         Ok(())
     }
 }
@@ -337,16 +312,29 @@ where
     }
 }
 
-pub struct FixedBodyWriter<'a, C: Write>(&'a mut C, usize);
+pub struct FixedBodyWriter<C: Write>(C, usize);
 
-impl<C> ErrorType for FixedBodyWriter<'_, C>
+impl<C> FixedBodyWriter<C>
+where
+    C: Write,
+{
+    pub fn new(conn: C) -> Self {
+        Self(conn, 0)
+    }
+
+    pub fn written(&self) -> usize {
+        self.1
+    }
+}
+
+impl<C> ErrorType for FixedBodyWriter<C>
 where
     C: Write,
 {
     type Error = C::Error;
 }
 
-impl<C> Write for FixedBodyWriter<'_, C>
+impl<C> Write for FixedBodyWriter<C>
 where
     C: Write,
 {
@@ -367,9 +355,22 @@ where
     }
 }
 
-pub struct ChunkedBodyWriter<'a, C: Write>(&'a mut C, usize);
+pub struct ChunkedBodyWriter<C: Write>(C, usize);
 
-impl<C> ErrorType for ChunkedBodyWriter<'_, C>
+impl<C> ChunkedBodyWriter<C>
+where
+    C: Write,
+{
+    pub fn new(conn: C) -> Self {
+        Self(conn, 0)
+    }
+
+    pub async fn write_empty_chunk(&mut self) -> Result<(), C::Error> {
+        self.0.write_all(b"0\r\n\r\n").await
+    }
+}
+
+impl<C> ErrorType for ChunkedBodyWriter<C>
 where
     C: Write,
 {
@@ -380,7 +381,7 @@ fn to_errorkind<E: embedded_io::Error>(e: E) -> embedded_io::ErrorKind {
     e.kind()
 }
 
-impl<C> Write for ChunkedBodyWriter<'_, C>
+impl<C> Write for ChunkedBodyWriter<C>
 where
     C: Write,
 {
@@ -392,6 +393,13 @@ where
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
         // Write chunk header
         let len = buf.len();
+
+        // Do not write an empty chunk as that will terminate the body
+        // Use `ChunkedBodyWriter.write_empty_chunk` instead if this is intended
+        if len == 0 {
+            return Ok(());
+        }
+
         let mut hex = [0; 2 * size_of::<usize>()];
         hex::encode_to_slice(len.to_be_bytes(), &mut hex).unwrap();
         let leading_zeros = hex.iter().position(|x| *x != b'0').unwrap_or_default();
@@ -423,7 +431,7 @@ mod tests {
         Request::new(Method::GET, "/")
             .basic_auth("username", "password")
             .build()
-            .write(&mut buffer)
+            .write_header(&mut buffer)
             .await
             .unwrap();
 
@@ -439,7 +447,7 @@ mod tests {
         Request::new(Method::POST, "/")
             .body([].as_slice())
             .build()
-            .write(&mut buffer)
+            .write_header(&mut buffer)
             .await
             .unwrap();
 
@@ -447,43 +455,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn with_known_body() {
+    async fn with_known_body_adds_content_length_header() {
         let mut buffer = Vec::new();
         Request::new(Method::POST, "/")
             .body(b"BODY".as_slice())
             .build()
-            .write(&mut buffer)
+            .write_header(&mut buffer)
             .await
             .unwrap();
 
-        assert_eq!(b"POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\nBODY", buffer.as_slice());
+        assert_eq!(b"POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\n", buffer.as_slice());
     }
 
-    struct ChunkedBody<'a>(&'a [u8]);
+    struct ChunkedBody;
 
-    impl RequestBody for ChunkedBody<'_> {
+    impl RequestBody for ChunkedBody {
         fn len(&self) -> Option<usize> {
             None // Unknown length: triggers chunked body
         }
 
-        async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
-            writer.write_all(self.0).await
+        async fn write<W: Write>(&self, _writer: &mut W) -> Result<(), W::Error> {
+            unreachable!()
         }
     }
 
     #[tokio::test]
-    async fn with_unknown_body() {
+    async fn with_unknown_body_adds_transfer_encoding_header() {
         let mut buffer = Vec::new();
 
         Request::new(Method::POST, "/")
-            .body(ChunkedBody(b"BODY".as_slice()))
+            .body(ChunkedBody)
             .build()
-            .write(&mut buffer)
+            .write_header(&mut buffer)
             .await
             .unwrap();
 
         assert_eq!(
-            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nBODY\r\n0\r\n\r\n",
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
             buffer.as_slice()
         );
     }

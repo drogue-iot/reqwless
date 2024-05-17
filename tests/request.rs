@@ -2,9 +2,9 @@ use embedded_io_adapters::tokio_1::FromTokio;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
 use reqwless::client::HttpConnection;
-use reqwless::request::{Method, RequestBuilder};
+use reqwless::request::RequestBuilder;
 use reqwless::Error;
-use reqwless::{headers::ContentType, request::Request, response::Response};
+use reqwless::{headers::ContentType, request::Request};
 use std::str::from_utf8;
 use std::sync::Once;
 use tokio::net::TcpStream;
@@ -48,9 +48,8 @@ async fn test_request_response() {
         .content_type(ContentType::TextPlain)
         .build();
 
-    request.write(&mut stream).await.unwrap();
     let mut rx_buf = [0; 4096];
-    let response = Response::read(&mut stream, Method::POST, &mut rx_buf).await.unwrap();
+    let response = stream.send(request, &mut rx_buf).await.unwrap();
     let body = response.body().read_to_end().await;
 
     assert_eq!(body.unwrap(), b"PING");
@@ -70,7 +69,7 @@ async fn write_without_base_path() {
     let request = Request::get("/hello").build();
 
     let mut buf = Vec::new();
-    request.write(&mut buf).await.unwrap();
+    request.write_header(&mut buf).await.unwrap();
 
     assert!(from_utf8(&buf).unwrap().starts_with("GET /hello HTTP/1.1"));
 }
@@ -82,16 +81,15 @@ async fn google_panic() {
     let addr = SocketAddr::from((google_ip, 80));
 
     let conn = tokio::net::TcpStream::connect(addr).await.unwrap();
-    let mut conn = TokioStream(FromTokio::new(conn));
+    let mut conn = HttpConnection::Plain(TokioStream(FromTokio::new(conn)));
 
     let request = Request::get("/")
         .host("www.google.com")
         .content_type(ContentType::TextPlain)
         .build();
-    request.write(&mut conn).await.unwrap();
 
     let mut rx_buf = [0; 8 * 1024];
-    let resp = Response::read(&mut conn, Method::GET, &mut rx_buf).await.unwrap();
+    let resp = conn.send(request, &mut rx_buf).await.unwrap();
     let result = resp.body().read_to_end().await;
 
     match result {

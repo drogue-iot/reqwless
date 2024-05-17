@@ -280,11 +280,67 @@ where
     /// The response is returned.
     pub async fn send<'req, 'buf, B: RequestBody>(
         &'req mut self,
-        request: Request<'conn, B>,
+        request: Request<'req, B>,
         rx_buf: &'buf mut [u8],
     ) -> Result<Response<'req, 'buf, HttpConnection<'conn, T>>, Error> {
-        request.write(self).await?;
+        self.write_request(&request).await?;
+        self.flush().await?;
         Response::read(self, request.method, rx_buf).await
+    }
+
+    async fn write_request<'req, B: RequestBody>(&mut self, request: &Request<'req, B>) -> Result<(), Error> {
+        request.write_header(self).await?;
+
+        if let Some(body) = request.body.as_ref() {
+            match body.len() {
+                Some(0) => {
+                    // Empty body
+                }
+                Some(len) => {
+                    trace!("Writing not-chunked body");
+                    let mut writer = FixedBodyWriter::new(self);
+                    body.write(&mut writer).await.map_err(|e| e.kind())?;
+
+                    if writer.written() != len {
+                        return Err(Error::IncorrectBodyWritten);
+                    }
+                }
+                None => {
+                    trace!("Writing chunked body");
+                    match self {
+                        HttpConnection::Plain(c) => {
+                            let mut writer = ChunkedBodyWriter::new(c);
+                            body.write(&mut writer).await?;
+                            writer.write_empty_chunk().await.map_err(|e| e.kind())?;
+                        }
+                        HttpConnection::PlainBuffered(buffered_conn) => {
+                            // Flush the buffered connection so that we can bypass it and rent its buffer
+                            buffered_conn.flush().await.map_err(|e| e.kind())?;
+                            let (conn, buf) = buffered_conn.bypass_with_buf().unwrap();
+
+                            // Construct a new buffered writer that buffers _before_ the chunked body writer
+                            let mut writer = BufferedWrite::new(ChunkedBodyWriter::new(conn), buf);
+                            body.write(&mut writer).await?;
+
+                            // Flush the buffered writer and write the empty chunk to the chunked body writer
+                            writer.flush().await.map_err(|e| e.kind())?;
+                            writer
+                                .bypass()
+                                .unwrap()
+                                .write_empty_chunk()
+                                .await
+                                .map_err(|e| e.kind())?;
+                        }
+                        HttpConnection::Tls(c) => {
+                            let mut writer = ChunkedBodyWriter::new(c);
+                            body.write(&mut writer).await?;
+                            writer.write_empty_chunk().await.map_err(|e| e.kind())?;
+                        }
+                    };
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -379,7 +435,8 @@ where
         rx_buf: &'buf mut [u8],
     ) -> Result<Response<'req, 'buf, HttpConnection<'conn, C>>, Error> {
         let request = self.request.take().ok_or(Error::AlreadySent)?.build();
-        request.write(&mut self.conn).await?;
+        self.conn.write_request(&request).await?;
+        self.conn.flush().await?;
         Response::read(&mut self.conn, request.method, rx_buf).await
     }
 }
@@ -508,7 +565,8 @@ where
         rx_buf: &'buf mut [u8],
     ) -> Result<Response<'req, 'buf, HttpConnection<'res, C>>, Error> {
         request.base_path = Some(self.base_path);
-        request.write(&mut self.conn).await?;
+        self.conn.write_request(&request).await?;
+        self.conn.flush().await?;
         Response::read(&mut self.conn, request.method, rx_buf).await
     }
 }
@@ -541,7 +599,8 @@ where
         let conn = self.conn;
         let mut request = self.request.build();
         request.base_path = Some(self.base_path);
-        request.write(conn).await?;
+        conn.write_request(&request).await?;
+        conn.flush().await?;
         Response::read(conn, request.method, rx_buf).await
     }
 }
@@ -588,5 +647,100 @@ where
 
     fn build(self) -> Request<'req, B> {
         self.request.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::convert::Infallible;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct VecBuffer(Vec<u8>);
+
+    impl ErrorType for VecBuffer {
+        type Error = Infallible;
+    }
+
+    impl Read for VecBuffer {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            unreachable!()
+        }
+    }
+
+    impl Write for VecBuffer {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.0.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+    }
+
+    #[tokio::test]
+    async fn with_empty_body() {
+        let mut buffer = VecBuffer::default();
+        let mut conn = HttpConnection::Plain(&mut buffer);
+
+        let request = Request::new(Method::POST, "/").body([].as_slice()).build();
+        conn.write_request(&request).await.unwrap();
+
+        assert_eq!(b"POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n", buffer.0.as_slice());
+    }
+
+    #[tokio::test]
+    async fn with_known_body() {
+        let mut buffer = VecBuffer::default();
+        let mut conn = HttpConnection::Plain(&mut buffer);
+
+        let request = Request::new(Method::POST, "/").body(b"BODY".as_slice()).build();
+        conn.write_request(&request).await.unwrap();
+
+        assert_eq!(b"POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\nBODY", buffer.0.as_slice());
+    }
+
+    struct ChunkedBody(&'static [&'static [u8]]);
+
+    impl RequestBody for ChunkedBody {
+        fn len(&self) -> Option<usize> {
+            None // Unknown length: triggers chunked body
+        }
+
+        async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
+            for chunk in self.0 {
+                writer.write_all(chunk).await?;
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn with_unknown_body_unbuffered() {
+        let mut buffer = VecBuffer::default();
+        let mut conn = HttpConnection::Plain(&mut buffer);
+
+        static CHUNKS: [&'static [u8]; 2] = [b"PART1", b"PART2"];
+        let request = Request::new(Method::POST, "/").body(ChunkedBody(&CHUNKS)).build();
+        conn.write_request(&request).await.unwrap();
+
+        assert_eq!(
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nPART1\r\n5\r\nPART2\r\n0\r\n\r\n",
+            buffer.0.as_slice()
+        );
+    }
+
+    #[tokio::test]
+    async fn with_unknown_body_buffered() {
+        let mut buffer = VecBuffer::default();
+        let mut tx_buf = [0; 1024];
+        let mut conn = HttpConnection::Plain(&mut buffer).into_buffered(&mut tx_buf);
+
+        static CHUNKS: [&'static [u8]; 2] = [b"PART1", b"PART2"];
+        let request = Request::new(Method::POST, "/").body(ChunkedBody(&CHUNKS)).build();
+        conn.write_request(&request).await.unwrap();
+
+        assert_eq!(
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\na\r\nPART1PART2\r\n0\r\n\r\n",
+            buffer.0.as_slice()
+        );
     }
 }
