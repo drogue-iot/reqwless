@@ -327,7 +327,7 @@ where
                             writer
                                 .bypass()
                                 .unwrap()
-                                .write_termination()
+                                .write_empty_chunk()
                                 .await
                                 .map_err(|e| e.kind())?;
                         }
