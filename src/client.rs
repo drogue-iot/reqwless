@@ -331,11 +331,14 @@ where
                                 .await
                                 .map_err(|e| e.kind())?;
                         }
+                        #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
                         HttpConnection::Tls(c) => {
                             let mut writer = ChunkedBodyWriter::new(c);
                             body.write(&mut writer).await?;
                             writer.write_empty_chunk().await.map_err(|e| e.kind())?;
                         }
+                        #[cfg(all(not(feature = "embedded-tls"), not(feature = "esp-mbedtls")))]
+                        HttpConnection::Tls(_) => unreachable!(),
                     };
                 }
             }
@@ -664,7 +667,7 @@ mod tests {
     }
 
     impl Read for VecBuffer {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
             unreachable!()
         }
     }
