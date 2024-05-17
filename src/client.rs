@@ -311,7 +311,7 @@ where
                         HttpConnection::Plain(c) => {
                             let mut writer = ChunkedBodyWriter::new(c);
                             body.write(&mut writer).await?;
-                            writer.write_empty_chunk().await.map_err(|e| e.kind())?;
+                            writer.write_termination().await.map_err(|e| e.kind())?;
                         }
                         HttpConnection::PlainBuffered(buffered_conn) => {
                             // Flush the buffered connection so that we can bypass it and rent its buffer
@@ -335,7 +335,7 @@ where
                         HttpConnection::Tls(c) => {
                             let mut writer = ChunkedBodyWriter::new(c);
                             body.write(&mut writer).await?;
-                            writer.write_empty_chunk().await.map_err(|e| e.kind())?;
+                            writer.write_termination().await.map_err(|e| e.kind())?;
                         }
                         #[cfg(all(not(feature = "embedded-tls"), not(feature = "esp-mbedtls")))]
                         HttpConnection::Tls(_) => unreachable!(),
