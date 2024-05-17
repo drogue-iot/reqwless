@@ -311,31 +311,19 @@ where
                         HttpConnection::Plain(c) => {
                             let mut writer = ChunkedBodyWriter::new(c);
                             body.write(&mut writer).await?;
-                            writer.write_empty_chunk().await.map_err(|e| e.kind())?;
+                            writer.terminate().await.map_err(|e| e.kind())?;
                         }
-                        HttpConnection::PlainBuffered(buffered_conn) => {
-                            // Flush the buffered connection so that we can bypass it and rent its buffer
-                            buffered_conn.flush().await.map_err(|e| e.kind())?;
-                            let (conn, buf) = buffered_conn.bypass_with_buf().unwrap();
-
-                            // Construct a new buffered writer that buffers _before_ the chunked body writer
-                            let mut writer = BufferedWrite::new(ChunkedBodyWriter::new(conn), buf);
+                        HttpConnection::PlainBuffered(buffered) => {
+                            let (conn, buf, unwritten) = buffered.split();
+                            let mut writer = BufferedChunkedBodyWriter::new_with_data(conn, buf, unwritten);
                             body.write(&mut writer).await?;
-
-                            // Flush the buffered writer and write the empty chunk to the chunked body writer
-                            writer.flush().await.map_err(|e| e.kind())?;
-                            writer
-                                .bypass()
-                                .unwrap()
-                                .write_empty_chunk()
-                                .await
-                                .map_err(|e| e.kind())?;
+                            writer.terminate().await.map_err(|e| e.kind())?;
                         }
                         #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
                         HttpConnection::Tls(c) => {
                             let mut writer = ChunkedBodyWriter::new(c);
                             body.write(&mut writer).await?;
-                            writer.write_empty_chunk().await.map_err(|e| e.kind())?;
+                            writer.terminate().await.map_err(|e| e.kind())?;
                         }
                         #[cfg(all(not(feature = "embedded-tls"), not(feature = "esp-mbedtls")))]
                         HttpConnection::Tls(_) => unreachable!(),
