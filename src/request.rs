@@ -5,7 +5,7 @@ use core::fmt::Write as _;
 use core::mem::size_of;
 use embedded_io::{Error as _, ErrorType};
 use embedded_io_async::Write;
-use heapless::{String, Vec};
+use heapless::String;
 
 /// A read only HTTP request type
 pub struct Request<'req, B>
@@ -365,8 +365,8 @@ where
         Self(conn, 0)
     }
 
-    pub async fn write_termination(&mut self) -> Result<(), C::Error> {
-        self.0.write_all(b"\r\n0\r\n\r\n").await
+    pub async fn write_empty_chunk(&mut self) -> Result<(), C::Error> {
+        self.0.write_all(b"0\r\n\r\n").await
     }
 }
 
@@ -404,23 +404,15 @@ where
         hex::encode_to_slice(len.to_be_bytes(), &mut hex).unwrap();
         let leading_zeros = hex.iter().position(|x| *x != b'0').unwrap_or_default();
         let (_, hex) = hex.split_at(leading_zeros);
+        self.0.write_all(hex).await.map_err(to_errorkind)?;
+        self.0.write_all(b"\r\n").await.map_err(to_errorkind)?;
 
-        let mut header = Vec::<u8, { 2 + 8 + 2 }>::new();
-        if self.1 > 0 {
-            // Write newline terminating ongoing chunk
-            // We do it here instead of after writing the chunk
-            // to minimize the number of writes to the underlying connection
-            header.extend_from_slice(b"\r\n").unwrap();
-        }
-        header.extend_from_slice(hex).unwrap();
-        header.extend_from_slice(b"\r\n").unwrap();
-
-        self.0.write_all(&header).await.map_err(to_errorkind)?;
-
-        // Write chunk payload
+        // Write chunk
         self.0.write_all(buf).await.map_err(to_errorkind)?;
         self.1 += len;
 
+        // Write newline
+        self.0.write_all(b"\r\n").await.map_err(to_errorkind)?;
         Ok(())
     }
 
@@ -432,7 +424,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::vec::Vec;
 
     #[tokio::test]
     async fn basic_auth() {
