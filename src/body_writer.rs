@@ -257,7 +257,7 @@ const fn get_max_chunk_header_size(buffer_size: usize) -> usize {
 fn write_chunked_header(buf: &mut [u8], chunk_len: usize) -> usize {
     let mut hex = [0; 2 * size_of::<usize>()];
     hex::encode_to_slice(chunk_len.to_be_bytes(), &mut hex).unwrap();
-    let leading_zeros = hex.iter().position(|x| *x != b'0').unwrap_or_default();
+    let leading_zeros = hex.iter().position(|x| *x != b'0').unwrap_or(hex.len() - 1);
     let hex_chars = hex.len() - leading_zeros;
     buf[..hex_chars].copy_from_slice(&hex[leading_zeros..]);
     buf[hex_chars..hex_chars + NEWLINE.len()].copy_from_slice(NEWLINE);
@@ -287,6 +287,23 @@ mod tests {
         assert_eq!(4, get_max_chunk_header_size(0x10 + 2 + 2));
         assert_eq!(4, get_max_chunk_header_size(0x11 + 2 + 2));
         assert_eq!(4, get_max_chunk_header_size(0x12 + 2 + 2));
+    }
+
+    #[test]
+    fn can_write_chunked_header() {
+        let mut buf = [0; 4];
+
+        let len = write_chunked_header(&mut buf, 0x00);
+        assert_eq!(b"0\r\n", &buf[..len]);
+
+        let len = write_chunked_header(&mut buf, 0x01);
+        assert_eq!(b"1\r\n", &buf[..len]);
+
+        let len = write_chunked_header(&mut buf, 0x0F);
+        assert_eq!(b"f\r\n", &buf[..len]);
+
+        let len = write_chunked_header(&mut buf, 0x10);
+        assert_eq!(b"10\r\n", &buf[..len]);
     }
 
     #[tokio::test]
