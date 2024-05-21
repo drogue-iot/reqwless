@@ -226,7 +226,8 @@ where
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        if self.header_pos > 0 {
+        if self.pos > self.header_pos + self.allocated_header {
+            // There are bytes written in the current chunk
             self.finish_current_chunk();
             self.emit_finished_chunk().await.map_err(|e| e.kind())?;
         }
