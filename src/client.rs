@@ -321,6 +321,7 @@ where
                             let mut writer = BufferingChunkedBodyWriter::new_with_data(conn, buf, unwritten);
                             body.write(&mut writer).await?;
                             writer.terminate().await.map_err(|e| e.kind())?;
+                            buffered.clear();
                         }
                         #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
                         HttpConnection::Tls(c) => {
