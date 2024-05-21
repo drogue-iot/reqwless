@@ -13,7 +13,7 @@ keywords = ["embedded", "async", "http", "no_std"]
 exclude = [".github"]
 
 [dependencies]
-buffered-io = { version = "0.5" }
+buffered-io = { version = "0.5.3" }
 embedded-io = { version = "0.6" }
 embedded-io-async = { version = "0.6" }
 embedded-nal-async = "0.7.0"
@@ -27,7 +27,9 @@ defmt = { version = "0.3", optional = true }
 embedded-tls = { version = "0.17", default-features = false, optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 nourl = "0.1.1"
-esp-mbedtls = { git = "https://github.com/esp-rs/esp-mbedtls.git", features = ["async"], optional = true }
+esp-mbedtls = { git = "https://github.com/esp-rs/esp-mbedtls.git", features = [
+    "async",
+], optional = true }
 
 [dev-dependencies]
 hyper = { version = "0.14.23", features = ["full"] }

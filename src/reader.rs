@@ -98,7 +98,7 @@ where
                 unreachable!()
             }
 
-            self.buffer.loaded = self.stream.read(&mut self.buffer.buffer).await.map_err(|e| e.kind())?;
+            self.buffer.loaded = self.stream.read(self.buffer.buffer).await.map_err(|e| e.kind())?;
         }
 
         self.buffer.fill_buf()

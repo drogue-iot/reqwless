@@ -7,6 +7,7 @@ use embedded_io_async::ReadExactError;
 
 mod fmt;
 
+mod body_writer;
 pub mod client;
 pub mod headers;
 mod reader;
