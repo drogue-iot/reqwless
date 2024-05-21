@@ -449,30 +449,25 @@ pub enum Status {
     Unknown = 0,
 }
 
-impl Status {
+impl StatusCode {
     pub fn is_informational(&self) -> bool {
-        let status = *self as u16;
-        (100..=199).contains(&status)
+        (100..=199).contains(&self.0)
     }
 
     pub fn is_successful(&self) -> bool {
-        let status = *self as u16;
-        (200..=299).contains(&status)
+        (200..=299).contains(&self.0)
     }
 
     pub fn is_redirection(&self) -> bool {
-        let status = *self as u16;
-        (300..=399).contains(&status)
+        (300..=399).contains(&self.0)
     }
 
     pub fn is_client_error(&self) -> bool {
-        let status = *self as u16;
-        (400..=499).contains(&status)
+        (400..=499).contains(&self.0)
     }
 
     pub fn is_server_error(&self) -> bool {
-        let status = *self as u16;
-        (500..=599).contains(&status)
+        (500..=599).contains(&self.0)
     }
 }
 
@@ -816,6 +811,9 @@ mod tests {
         assert_eq!(StatusCode(0), StatusCode(0));
         assert_eq!(StatusCode(987), StatusCode(987));
         assert_ne!(StatusCode(123), StatusCode(321));
+
+        let status: Status = StatusCode(200).into();
+        assert_eq!(Status::Ok, status);
     }
 
     #[test]
