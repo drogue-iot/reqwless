@@ -149,7 +149,7 @@ where
 
             if self.header_pos + EMPTY_CHUNK.len() > self.buf.len() {
                 // There is not enough space to fit the empty chunk in the buffer
-                self.emit_finished_chunk().await?;
+                self.emit_finished_chunks().await?;
             }
         }
 
@@ -157,7 +157,7 @@ where
         self.header_pos += EMPTY_CHUNK.len();
         self.allocated_header = 0;
         self.pos = self.header_pos + self.allocated_header;
-        self.emit_finished_chunk().await
+        self.emit_finished_chunks().await
     }
 
     /// Append to the buffer
@@ -196,7 +196,7 @@ where
         self.pos = self.header_pos + self.allocated_header;
     }
 
-    async fn emit_finished_chunk(&mut self) -> Result<(), C::Error> {
+    async fn emit_finished_chunks(&mut self) -> Result<(), C::Error> {
         self.conn.write_all(&self.buf[..self.header_pos]).await?;
         self.header_pos = 0;
         self.allocated_header = get_max_chunk_header_size(self.buf.len());
@@ -220,7 +220,7 @@ where
         let written = self.append_current_chunk(buf);
         if written < buf.len() {
             self.finish_current_chunk();
-            self.emit_finished_chunk().await.map_err(|e| e.kind())?;
+            self.emit_finished_chunks().await.map_err(|e| e.kind())?;
         }
         Ok(written)
     }
@@ -229,7 +229,7 @@ where
         if self.pos > self.header_pos + self.allocated_header {
             // There are bytes written in the current chunk
             self.finish_current_chunk();
-            self.emit_finished_chunk().await.map_err(|e| e.kind())?;
+            self.emit_finished_chunks().await.map_err(|e| e.kind())?;
         }
         self.conn.flush().await.map_err(|e| e.kind())
     }
