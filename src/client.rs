@@ -1,3 +1,6 @@
+use crate::body_writer::BufferingChunkedBodyWriter;
+use crate::body_writer::ChunkedBodyWriter;
+use crate::body_writer::FixedBodyWriter;
 /// Client using embedded-nal-async traits to establish connections and perform HTTP requests.
 ///
 use crate::headers::ContentType;
@@ -315,7 +318,7 @@ where
                         }
                         HttpConnection::PlainBuffered(buffered) => {
                             let (conn, buf, unwritten) = buffered.split();
-                            let mut writer = BufferedChunkedBodyWriter::new_with_data(conn, buf, unwritten);
+                            let mut writer = BufferingChunkedBodyWriter::new_with_data(conn, buf, unwritten);
                             body.write(&mut writer).await?;
                             writer.terminate().await.map_err(|e| e.kind())?;
                         }
