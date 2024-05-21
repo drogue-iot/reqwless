@@ -1,4 +1,4 @@
-use embedded_io_async::BufRead;
+use embedded_io_async::{BufRead, Write};
 use hyper::server::conn::Http;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwless::client::HttpClient;
 use reqwless::headers::ContentType;
-use reqwless::request::{Method, RequestBuilder};
+use reqwless::request::{Method, RequestBody, RequestBuilder};
 use reqwless::response::Status;
 use std::net::SocketAddr;
 use std::sync::Once;
@@ -291,6 +291,59 @@ async fn test_request_response_notls_buffered() {
     let response = request.send(&mut rx_buf).await.unwrap();
     let body = response.body().read_to_end().await;
     assert_eq!(body.unwrap(), b"PING");
+
+    tx.send(()).unwrap();
+    t.await.unwrap();
+}
+
+struct ChunkedBody(&'static [&'static [u8]]);
+
+impl RequestBody for ChunkedBody {
+    fn len(&self) -> Option<usize> {
+        None // Unknown length: triggers chunked body
+    }
+
+    async fn write<W: Write>(&self, writer: &mut W) -> Result<(), W::Error> {
+        for chunk in self.0 {
+            writer.write_all(chunk).await?;
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_request_response_notls_buffered_chunked() {
+    setup();
+    let addr = ([127, 0, 0, 1], 0).into();
+
+    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(echo)) });
+
+    let server = Server::bind(&addr).serve(service);
+    let addr = server.local_addr();
+
+    let (tx, rx) = oneshot::channel();
+    let t = tokio::spawn(async move {
+        tokio::select! {
+            _ = server => {}
+            _ = rx => {}
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{}", addr.port());
+    let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
+    let mut tx_buf = [0; 4096];
+    let mut rx_buf = [0; 4096];
+    static CHUNKS: [&'static [u8]; 2] = [b"PART1", b"PART2"];
+    let mut request = client
+        .request(Method::POST, &url)
+        .await
+        .unwrap()
+        .into_buffered(&mut tx_buf)
+        .body(ChunkedBody(&CHUNKS))
+        .content_type(ContentType::TextPlain);
+    let response = request.send(&mut rx_buf).await.unwrap();
+    let body = response.body().read_to_end().await;
+    assert_eq!(body.unwrap(), b"PART1PART2");
 
     tx.send(()).unwrap();
     t.await.unwrap();

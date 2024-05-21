@@ -220,12 +220,13 @@ where
 {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
         let remaining = self.handle_chunk_boundary().await?;
-
-        let buf = self.raw_body.fill_buf().await.map_err(|e| Error::Network(e.kind()))?;
-
-        let len = buf.len().min(remaining);
-
-        Ok(&buf[..len])
+        if remaining == 0 {
+            Ok(&[])
+        } else {
+            let buf = self.raw_body.fill_buf().await.map_err(|e| Error::Network(e.kind()))?;
+            let len = buf.len().min(remaining);
+            Ok(&buf[..len])
+        }
     }
 
     fn consume(&mut self, amt: usize) {
