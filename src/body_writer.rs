@@ -235,17 +235,19 @@ where
     }
 }
 
-const fn get_hex_chars(number: usize) -> u32 {
+/// Get the number of hex characters for a number.
+/// E.g. 0x0 => 1, 0x0F => 1, 0x10 => 2, 0x1234 => 4.
+const fn get_num_hex_chars(number: usize) -> usize {
     if number == 0 {
         1
     } else {
-        (usize::BITS - number.leading_zeros()).div_ceil(4)
+        (usize::BITS - number.leading_zeros()).div_ceil(4) as usize
     }
 }
 
 const fn get_max_chunk_header_size(buffer_size: usize) -> usize {
-    if buffer_size >= NEWLINE.len() + NEWLINE.len() {
-        get_hex_chars(buffer_size - NEWLINE.len() - NEWLINE.len()) as usize + NEWLINE.len()
+    if let Some(hex_chars_and_payload_size) = buffer_size.checked_sub(2 * NEWLINE.len()) {
+        get_num_hex_chars(hex_chars_and_payload_size) + NEWLINE.len()
     } else {
         // Not enough space in buffer to fit a header + footer
         0
@@ -268,12 +270,12 @@ mod tests {
 
     #[test]
     fn can_get_hex_chars() {
-        assert_eq!(1, get_hex_chars(0));
-        assert_eq!(1, get_hex_chars(1));
-        assert_eq!(1, get_hex_chars(0xF));
-        assert_eq!(2, get_hex_chars(0x10));
-        assert_eq!(2, get_hex_chars(0xFF));
-        assert_eq!(3, get_hex_chars(0x100));
+        assert_eq!(1, get_num_hex_chars(0));
+        assert_eq!(1, get_num_hex_chars(1));
+        assert_eq!(1, get_num_hex_chars(0xF));
+        assert_eq!(2, get_num_hex_chars(0x10));
+        assert_eq!(2, get_num_hex_chars(0xFF));
+        assert_eq!(3, get_num_hex_chars(0x100));
     }
 
     #[test]
@@ -283,6 +285,8 @@ mod tests {
         assert_eq!(3, get_max_chunk_header_size(0x01 + 2 + 2));
         assert_eq!(3, get_max_chunk_header_size(0x0F + 2 + 2));
         assert_eq!(4, get_max_chunk_header_size(0x10 + 2 + 2));
+        assert_eq!(4, get_max_chunk_header_size(0x11 + 2 + 2));
+        assert_eq!(4, get_max_chunk_header_size(0x12 + 2 + 2));
     }
 
     #[tokio::test]
