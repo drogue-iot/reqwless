@@ -81,7 +81,7 @@ where
         let mut response = httparse::Response::new(&mut headers);
         response.parse(&header_buf[..header_len]).unwrap();
 
-        let status = response.code.unwrap().into();
+        let status: StatusCode = response.code.unwrap().into();
         let mut content_type = None;
         let mut content_length = None;
         let mut transfer_encoding = Vec::new();
@@ -104,6 +104,16 @@ where
             } else if header.name.eq_ignore_ascii_case("keep-alive") {
                 keep_alive.replace(header.value.try_into().map_err(|_| Error::Codec)?);
             }
+        }
+
+        if status.is_informational() || status == Status::NoContent {
+            // According to https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.2
+            //  A server MUST NOT send a Content-Length header field in any response
+            //  with a status code of 1xx (Informational) or 204 (No Content)
+            if content_length.unwrap_or_default() != 0 {
+                return Err(Error::Codec);
+            }
+            content_length = Some(0);
         }
 
         // The number of bytes that we have read into the body part of the response
@@ -532,6 +542,39 @@ mod tests {
         response::{chunked::ChunkedBodyReader, Response},
         Error, TryBufRead,
     };
+
+    #[tokio::test]
+    async fn can_read_no_content() {
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 204 No Content\r\n\r\n");
+        let mut response_buf = [0; 200];
+        let response = Response::read(&mut conn, Method::POST, &mut response_buf)
+            .await
+            .unwrap();
+
+        assert_eq!(b"", response.body().read_to_end().await.unwrap());
+        assert!(conn.is_exhausted());
+    }
+
+    #[tokio::test]
+    async fn can_read_no_content_with_zero_content_length() {
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+        let mut response_buf = [0; 200];
+        let response = Response::read(&mut conn, Method::POST, &mut response_buf)
+            .await
+            .unwrap();
+
+        assert_eq!(b"", response.body().read_to_end().await.unwrap());
+        assert!(conn.is_exhausted());
+    }
+
+    #[tokio::test]
+    async fn cannot_read_no_content_with_nonzero_content_length() {
+        let mut conn = FakeSingleReadConnection::new(b"HTTP/1.1 204 No Content\r\nContent-Length: 5\r\n\r\nHELLO");
+        let mut response_buf = [0; 200];
+        let response = Response::read(&mut conn, Method::POST, &mut response_buf).await;
+
+        assert!(matches!(response, Err(Error::Codec)));
+    }
 
     #[tokio::test]
     async fn can_read_with_content_length_with_same_buffer() {
