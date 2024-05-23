@@ -115,8 +115,4 @@ This enables `alloc` on `embedded-tls` which in turn enables RSA signature algor
 
 # Minimum supported Rust version (MSRV)
 
-`reqwless` requires a feature from `nightly` to compile `embedded-io` with async support:
-
-* `async_fn_in_trait`
-
-This feature is complete, but is not yet merged to `stable`.
+`reqwless` can compile on stable Rust 1.75 and up.
