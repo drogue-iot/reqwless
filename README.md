@@ -43,6 +43,8 @@ If you are missing a feature or would like an improvement, please raise an issue
 
 :warning: Note that both features cannot be used together and will cause a compilation error.
 
+:warning: The released version of `reqwless` does not support `esp-mbedtls`. The reason for this is that `esp-mbedtls` is not yet published to crates.io. One should specify `reqwless` as a git dependency to use `esp-mbedtls`.
+
 ### esp-mbedtls
 **Can only be used on esp32 boards**
 `esp-mbedtls` supports TLS 1.2 and 1.3. It uses espressif's Rust wrapper over mbedtls, alongside optimizations such as hardware acceleration.
@@ -115,8 +117,4 @@ This enables `alloc` on `embedded-tls` which in turn enables RSA signature algor
 
 # Minimum supported Rust version (MSRV)
 
-`reqwless` requires a feature from `nightly` to compile `embedded-io` with async support:
-
-* `async_fn_in_trait`
-
-This feature is complete, but is not yet merged to `stable`.
+`reqwless` can compile on stable Rust 1.75 and up.

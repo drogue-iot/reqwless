@@ -1,6 +1,6 @@
 [package]
 name = "reqwless"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 resolver = "2"
 description = "HTTP client for embedded devices"
@@ -27,7 +27,7 @@ defmt = { version = "0.3", optional = true }
 embedded-tls = { version = "0.17", default-features = false, optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 nourl = "0.1.1"
-esp-mbedtls = { git = "https://github.com/esp-rs/esp-mbedtls.git", features = [
+esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", features = [
     "async",
 ], optional = true }
 

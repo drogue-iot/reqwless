@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.12 (2024-05-23)
+
+### Fixes
+
+* Fix bug when calling fill_buf() when there are no remaining bytes ([#75](https://github.com/drogue-iot/reqwless/pull/75))
+* Handle no-content status code 204 ([#76](https://github.com/drogue-iot/reqwless/pull/76))
+
+### Features
+* Support accessing the response code as an integer ([#70](https://github.com/drogue-iot/reqwless/pull/70) / [#73](https://github.com/drogue-iot/reqwless/pull/73))
+* Buffer writes before chunks are written to connection ([#72](https://github.com/drogue-iot/reqwless/pull/72))
+
 ### Fixes
 
 ## v0.9.1 (2023-11-04)
