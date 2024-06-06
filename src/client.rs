@@ -282,10 +282,10 @@ where
     ///
     /// The response is returned.
     pub async fn send<'req, 'buf, B: RequestBody>(
-        &'req mut self,
+        &'conn mut self,
         request: Request<'req, B>,
         rx_buf: &'buf mut [u8],
-    ) -> Result<Response<'req, 'buf, HttpConnection<'conn, T>>, Error> {
+    ) -> Result<Response<'conn, 'buf, HttpConnection<'conn, T>>, Error> {
         self.write_request(&request).await?;
         self.flush().await?;
         Response::read(self, request.method, rx_buf).await
