@@ -1,6 +1,6 @@
 [package]
 name = "reqwless"
-version = "0.12.0"
+version = "0.12.1"
 edition = "2021"
 resolver = "2"
 description = "HTTP client for embedded devices"
