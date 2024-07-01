@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+* Fix bug where buffering chunked body writer could return `Ok(0)` on calls to `write()` ([#81](https://github.com/drogue-iot/reqwless/pull/81))
+
 ## v0.12 (2024-05-23)
 
 ### Fixes
