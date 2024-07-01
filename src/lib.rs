@@ -133,5 +133,10 @@ where
             use embedded_io_async::BufRead;
             tls.consume(amt);
         }
+
+        #[cfg(not(feature = "embedded-tls"))]
+        {
+            _ = amt;
+        }
     }
 }
