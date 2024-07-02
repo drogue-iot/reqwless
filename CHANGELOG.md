@@ -8,6 +8,7 @@
 ### Fixes
 
 * Fix bug where buffering chunked body writer could return `Ok(0)` on calls to `write()` ([#81](https://github.com/drogue-iot/reqwless/pull/81))
+* Fix bug in buffering chunked body writer where a call to `write()` with a buffer length exactly matching the remaining size of the remainder of the current chunk causes the entire chunk to be discarded ([#85](https://github.com/drogue-iot/reqwless/pull/85))
 
 ## v0.12 (2024-05-23)
 
