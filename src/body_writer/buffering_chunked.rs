@@ -117,6 +117,10 @@ where
         self.pos = self.header_pos + self.allocated_header;
     }
 
+    fn current_chunk_is_full(&self) -> bool {
+        self.pos + NEWLINE.len() == self.buf.len()
+    }
+
     async fn emit_buffered(&mut self) -> Result<(), C::Error> {
         self.conn.write_all(&self.buf[..self.header_pos]).await?;
         self.header_pos = 0;
@@ -149,7 +153,7 @@ where
             self.emit_buffered().await.map_err(|e| e.kind())?;
             written = self.append_current_chunk(buf);
         }
-        if written < buf.len() {
+        if self.current_chunk_is_full() {
             self.finish_current_chunk();
             self.emit_buffered().await.map_err(|e| e.kind())?;
         }
@@ -330,7 +334,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn current_chunk_is_emitted_before_empty_chunk_is_emitted() {
+    async fn written_bytes_fit_exactly() {
         // Given
         let mut conn = Vec::new();
         let mut buf = [0; 14];
@@ -338,11 +342,28 @@ mod tests {
 
         // When
         let mut writer = BufferingChunkedBodyWriter::new_with_data(&mut conn, &mut buf, 5);
+        writer.write_all(b"BODY").await.unwrap(); // Can fit exactly
         writer.write_all(b"BODY").await.unwrap(); // Can fit
+        writer.terminate().await.unwrap(); // Can fit
+
+        // Then
+        assert_eq!(b"HELLO4\r\nBODY\r\n4\r\nBODY\r\n0\r\n\r\n", conn.as_slice());
+    }
+
+    #[tokio::test]
+    async fn current_chunk_is_emitted_on_termination_before_empty_chunk_is_emitted() {
+        // Given
+        let mut conn = Vec::new();
+        let mut buf = [0; 14];
+        buf[..5].copy_from_slice(b"HELLO");
+
+        // When
+        let mut writer = BufferingChunkedBodyWriter::new_with_data(&mut conn, &mut buf, 5);
+        writer.write_all(b"BOD").await.unwrap(); // Can fit
         writer.terminate().await.unwrap(); // Cannot fit
 
         // Then
-        assert_eq!(b"HELLO4\r\nBODY\r\n0\r\n\r\n", conn.as_slice());
+        assert_eq!(b"HELLO3\r\nBOD\r\n0\r\n\r\n", conn.as_slice());
     }
 
     #[tokio::test]
