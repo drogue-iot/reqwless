@@ -313,12 +313,14 @@ where
                             let mut writer = ChunkedBodyWriter::new(c);
                             body.write(&mut writer).await?;
                             writer.terminate().await.map_err(|e| e.kind())?;
+                            writer.flush().await?;
                         }
                         HttpConnection::PlainBuffered(buffered) => {
                             let (conn, buf, unwritten) = buffered.split();
                             let mut writer = BufferingChunkedBodyWriter::new_with_data(conn, buf, unwritten);
                             body.write(&mut writer).await?;
                             writer.terminate().await.map_err(|e| e.kind())?;
+                            writer.flush().await?;
                             buffered.clear();
                         }
                         #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
@@ -326,6 +328,7 @@ where
                             let mut writer = ChunkedBodyWriter::new(c);
                             body.write(&mut writer).await?;
                             writer.terminate().await.map_err(|e| e.kind())?;
+                            writer.flush().await?;
                         }
                         #[cfg(all(not(feature = "embedded-tls"), not(feature = "esp-mbedtls")))]
                         HttpConnection::Tls(_) => unreachable!(),
