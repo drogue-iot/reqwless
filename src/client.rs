@@ -1,8 +1,6 @@
-use crate::body_writer::BufferingChunkedBodyWriter;
-use crate::body_writer::ChunkedBodyWriter;
-use crate::body_writer::FixedBodyWriter;
 /// Client using embedded-nal-async traits to establish connections and perform HTTP requests.
 ///
+use crate::body_writer::{BufferingChunkedBodyWriter, ChunkedBodyWriter, FixedBodyWriter};
 use crate::headers::ContentType;
 use crate::request::*;
 use crate::response::*;
