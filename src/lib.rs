@@ -76,7 +76,7 @@ impl From<embedded_tls::TlsError> for Error {
 
 /// Re-export those members since they're used for [client::TlsConfig].
 #[cfg(feature = "esp-mbedtls")]
-pub use esp_mbedtls::{Certificates, Rsa, TlsVersion, X509};
+pub use esp_mbedtls::{Certificates, TlsVersion, X509};
 
 #[cfg(feature = "esp-mbedtls")]
 impl From<esp_mbedtls::TlsError> for Error {
