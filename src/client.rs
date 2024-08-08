@@ -35,7 +35,7 @@ pub struct TlsConfig<'a> {
     certificates: crate::Certificates<'a>,
 
     /// Will use hardware acceleration on the ESP32 if it contains the RSA peripheral.
-    rsa: Option<&'a mut esp_mbedtls::Rsa<'a>>,
+    rsa: Option<&'a mut esp_mbedtls::hal::peripherals::RSA>,
 }
 
 /// Type for TLS configuration of HTTP client.
@@ -73,7 +73,7 @@ impl<'a> TlsConfig<'a> {
     pub fn new(
         version: crate::TlsVersion,
         certificates: crate::Certificates<'a>,
-        rsa: Option<&'a mut esp_mbedtls::Rsa<'a>>,
+        rsa: Option<&'a mut esp_mbedtls::hal::peripherals::RSA>,
     ) -> Self {
         Self {
             version,
@@ -137,7 +137,7 @@ where
                     tls.version,
                     tls.certificates,
                     // Create a inner Some(&mut Rsa) because Rsa doesn't implement Copy
-                    tls.rsa.as_mut().map(|inner| inner as &mut esp_mbedtls::Rsa),
+                    tls.rsa.as_mut().map(|p| p as &mut esp_mbedtls::hal::peripherals::RSA),
                 )?
                 .connect()
                 .await?;
