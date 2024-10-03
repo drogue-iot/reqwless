@@ -1,8 +1,8 @@
 use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_io_async::{ErrorType, Read, Write};
-use embedded_nal_async::{AddrType, IpAddr, Ipv4Addr};
+use embedded_nal_async::AddrType;
 use reqwless::TryBufRead;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use tokio::net::TcpStream;
 
 #[derive(Debug)]
@@ -77,13 +77,10 @@ impl embedded_nal_async::TcpConnect for TokioTcp {
     type Error = std::io::Error;
     type Connection<'m> = TokioStream;
 
-    async fn connect<'m>(
-        &'m self,
-        remote: embedded_nal_async::SocketAddr,
-    ) -> Result<Self::Connection<'m>, Self::Error> {
+    async fn connect<'m>(&'m self, remote: SocketAddr) -> Result<Self::Connection<'m>, Self::Error> {
         let ip = match remote {
-            embedded_nal_async::SocketAddr::V4(a) => a.ip().octets().into(),
-            embedded_nal_async::SocketAddr::V6(a) => a.ip().octets().into(),
+            SocketAddr::V4(a) => a.ip().octets().into(),
+            SocketAddr::V6(a) => a.ip().octets().into(),
         };
         let remote = SocketAddr::new(ip, remote.port());
         let stream = TcpStream::connect(remote).await?;

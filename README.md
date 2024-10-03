@@ -117,4 +117,4 @@ This enables `alloc` on `embedded-tls` which in turn enables RSA signature algor
 
 # Minimum supported Rust version (MSRV)
 
-`reqwless` can compile on stable Rust 1.75 and up.
+`reqwless` can compile on stable Rust 1.77 and up.

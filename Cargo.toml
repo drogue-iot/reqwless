@@ -3,7 +3,7 @@ name = "reqwless"
 version = "0.12.1"
 edition = "2021"
 resolver = "2"
-rust-version = "1.75"
+rust-version = "1.77"
 description = "HTTP client for embedded devices"
 documentation = "https://docs.rs/reqwless"
 readme = "README.md"
@@ -17,7 +17,7 @@ exclude = [".github"]
 buffered-io = { version = "0.5.4" }
 embedded-io = { version = "0.6" }
 embedded-io-async = { version = "0.6" }
-embedded-nal-async = "0.7.0"
+embedded-nal-async = "0.8.0"
 httparse = { version = "1.8.0", default-features = false }
 heapless = "0.8"
 hex = { version = "0.4", default-features = false }
