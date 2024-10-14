@@ -217,7 +217,7 @@ where
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// HTTP request methods
 pub enum Method {
