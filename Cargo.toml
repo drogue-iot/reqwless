@@ -1,6 +1,6 @@
 [package]
 name = "reqwless"
-version = "0.12.1"
+version = "0.13.0"
 edition = "2021"
 resolver = "2"
 rust-version = "1.77"
