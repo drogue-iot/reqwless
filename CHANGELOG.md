@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.13.0 (2024-10-21)
+
+* Upgrade to embedded-nal-async 0.8
+* Set MSRV
+* Allow `request::Method` to be copied and cloned
 
 ## v0.12.1 (2024-07-01)
 
