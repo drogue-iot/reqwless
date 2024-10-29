@@ -5,8 +5,8 @@ use heapless::Vec;
 use crate::headers::{ContentType, KeepAlive, TransferEncoding};
 use crate::reader::BufferingReader;
 use crate::request::Method;
-use crate::response::chunked::ChunkedBodyReader;
-use crate::response::fixed_length::FixedLengthBodyReader;
+pub use crate::response::chunked::ChunkedBodyReader;
+pub use crate::response::fixed_length::FixedLengthBodyReader;
 use crate::{Error, TryBufRead};
 
 mod chunked;
