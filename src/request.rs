@@ -2,6 +2,8 @@
 use crate::headers::ContentType;
 use crate::Error;
 use core::fmt::Write as _;
+use core::net::Ipv6Addr;
+use core::str::FromStr;
 use embedded_io::Error as _;
 use embedded_io_async::Write;
 use heapless::String;
@@ -139,7 +141,17 @@ where
             }
         }
         if let Some(host) = &self.host {
-            write_header(c, "Host", host).await?;
+            let is_ipv6 = Ipv6Addr::from_str(host).is_ok();
+            write_str(c, "Host").await?;
+            write_str(c, ": ").await?;
+            if is_ipv6 {
+                write_str(c, "[").await?;
+            }
+            write_str(c, host).await?;
+            if is_ipv6 {
+                write_str(c, "]").await?;
+            }
+            write_str(c, "\r\n").await?;
         }
         if let Some(content_type) = &self.content_type {
             write_header(c, "Content-Type", content_type.as_str()).await?;
