@@ -35,14 +35,8 @@ pub struct TlsConfig<'a, const RX_SIZE: usize = 4096, const TX_SIZE: usize = 409
     /// Client certificates. See [esp_mbedtls::Certificates]
     certificates: crate::Certificates<'a>,
 
-    /// Will use hardware acceleration on the ESP32 if it contains the RSA peripheral.
-    rsa: Option<&'a mut esp_mbedtls::hal::peripherals::RSA>,
-
-    /// Buffer for the reading side of the TLS connection
-    read_buffer: &'a mut [u8; RX_SIZE],
-
-    /// Buffer for the writing side of the TLS connection
-    write_buffer: &'a mut [u8; TX_SIZE],
+    /// A reference to instance of the MbedTLS library.
+    tls_reference: esp_mbedtls::TlsReference<'a>,
 }
 
 /// Type for TLS configuration of HTTP client.
@@ -78,18 +72,14 @@ impl<'a> TlsConfig<'a> {
 #[cfg(feature = "esp-mbedtls")]
 impl<'a, const RX_SIZE: usize, const TX_SIZE: usize> TlsConfig<'a, RX_SIZE, TX_SIZE> {
     pub fn new(
-        read_buffer: &'a mut [u8; RX_SIZE],
-        write_buffer: &'a mut [u8; TX_SIZE],
         version: crate::TlsVersion,
         certificates: crate::Certificates<'a>,
-        rsa: Option<&'a mut esp_mbedtls::hal::peripherals::RSA>,
+        tls_reference: crate::TlsReference<'a>,
     ) -> Self {
         Self {
             version,
             certificates,
-            rsa,
-            read_buffer,
-            write_buffer,
+            tls_reference,
         }
     }
 }
@@ -141,21 +131,20 @@ where
         if url.scheme() == UrlScheme::HTTPS {
             #[cfg(feature = "esp-mbedtls")]
             if let Some(tls) = self.tls.as_mut() {
+                let mut servername = host.as_bytes().to_vec();
+                servername.push(0);
                 let mut session = esp_mbedtls::asynch::Session::new(
                     conn,
-                    host,
-                    esp_mbedtls::Mode::Client,
+                    esp_mbedtls::Mode::Client {
+                        servername: unsafe { core::ffi::CStr::from_bytes_with_nul_unchecked(&servername) },
+                    },
                     tls.version,
                     tls.certificates,
-                    tls.read_buffer,
-                    tls.write_buffer,
+                    tls.tls_reference,
                 )?;
 
-                if let Some(rsa) = tls.rsa.as_mut() {
-                    session = session.with_hardware_rsa(rsa as &mut esp_mbedtls::hal::peripherals::RSA);
-                }
-
-                Ok(HttpConnection::Tls(session.connect().await?))
+                session.connect().await?;
+                Ok(HttpConnection::Tls(session))
             } else {
                 Ok(HttpConnection::Plain(conn))
             }
@@ -234,7 +223,7 @@ where
     Plain(C),
     PlainBuffered(BufferedWrite<'conn, C>),
     #[cfg(feature = "esp-mbedtls")]
-    Tls(esp_mbedtls::asynch::AsyncConnectedSession<'conn, C, 4096, 4096>),
+    Tls(esp_mbedtls::asynch::Session<'conn, C>),
     #[cfg(feature = "embedded-tls")]
     Tls(embedded_tls::TlsConnection<'conn, C, embedded_tls::Aes128GcmSha256>),
     #[cfg(all(not(feature = "embedded-tls"), not(feature = "esp-mbedtls")))]
