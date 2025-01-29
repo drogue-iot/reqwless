@@ -18,6 +18,8 @@ where
     pub(crate) host: Option<&'req str>,
     pub(crate) body: Option<B>,
     pub(crate) content_type: Option<ContentType>,
+    #[cfg(feature = "accept-header")]
+    pub(crate) accept: Option<ContentType>,
     pub(crate) extra_headers: Option<&'req [(&'req str, &'req str)]>,
 }
 
@@ -31,6 +33,8 @@ impl Default for Request<'_, ()> {
             host: None,
             body: None,
             content_type: None,
+            #[cfg(feature = "accept-header")]
+            accept: None,
             extra_headers: None,
         }
     }
@@ -53,6 +57,9 @@ where
     fn host(self, host: &'req str) -> Self;
     /// Set the content type header for the request.
     fn content_type(self, content_type: ContentType) -> Self;
+    /// Set the accept header for the request.
+    #[cfg(feature = "accept-header")]
+    fn accept(self, content_type: ContentType) -> Self;
     /// Set the basic authentication header for the request.
     fn basic_auth(self, username: &'req str, password: &'req str) -> Self;
     /// Return an immutable request.
@@ -144,6 +151,10 @@ where
         if let Some(content_type) = &self.content_type {
             write_header(c, "Content-Type", content_type.as_str()).await?;
         }
+        #[cfg(feature = "accept-header")]
+        if let Some(accept) = &self.accept {
+            write_header(c, "Accept", accept.as_str()).await?;
+        }
         if let Some(body) = self.body.as_ref() {
             if let Some(len) = body.len() {
                 let mut s: String<32> = String::new();
@@ -193,6 +204,8 @@ where
             host: self.0.host,
             body: Some(body),
             content_type: self.0.content_type,
+            #[cfg(feature = "accept-header")]
+            accept: self.0.accept,
             extra_headers: self.0.extra_headers,
         })
     }
@@ -204,6 +217,12 @@ where
 
     fn content_type(mut self, content_type: ContentType) -> Self {
         self.0.content_type.replace(content_type);
+        self
+    }
+
+    #[cfg(feature = "accept-header")]
+    fn accept(mut self, content_type: ContentType) -> Self {
+        self.0.accept.replace(content_type);
         self
     }
 
@@ -384,5 +403,20 @@ mod tests {
             b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
             buffer.as_slice()
         );
+    }
+
+    #[cfg(feature = "accept-header")]
+    #[tokio::test]
+    async fn with_accept_header() {
+        let mut buffer: Vec<u8> = Vec::new();
+
+        Request::new(Method::GET, "/")
+            .accept(ContentType::ApplicationJson)
+            .build()
+            .write_header(&mut buffer)
+            .await
+            .unwrap();
+
+        assert_eq!(b"GET / HTTP/1.1\r\nAccept: application/json\r\n\r\n", buffer.as_slice());
     }
 }

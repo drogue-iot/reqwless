@@ -471,6 +471,12 @@ where
         self
     }
 
+    #[cfg(feature = "accept-header")]
+    fn accept(mut self, content_type: ContentType) -> Self {
+        self.request = Some(self.request.unwrap().accept(content_type));
+        self
+    }
+
     fn basic_auth(mut self, username: &'m str, password: &'m str) -> Self {
         self.request = Some(self.request.unwrap().basic_auth(username, password));
         self
@@ -633,6 +639,12 @@ where
 
     fn content_type(mut self, content_type: ContentType) -> Self {
         self.request = self.request.content_type(content_type);
+        self
+    }
+
+    #[cfg(feature = "accept-header")]
+    fn accept(mut self, content_type: ContentType) -> Self {
+        self.request = self.request.accept(content_type);
         self
     }
 
