@@ -9,9 +9,6 @@ pub use crate::response::chunked::ChunkedBodyReader;
 pub use crate::response::fixed_length::FixedLengthBodyReader;
 use crate::{Error, TryBufRead};
 
-#[cfg(any(feature = "date-header-u8", feature = "date-header-chrono"))]
-use crate::headers::HeaderDate;
-
 mod chunked;
 mod fixed_length;
 
@@ -31,9 +28,6 @@ where
     pub content_type: Option<ContentType>,
     /// The content length.
     pub content_length: Option<usize>,
-    /// The date, if configured.
-    #[cfg(any(feature = "date-header-u8", feature = "date-header-chrono"))]
-    pub date: Option<HeaderDate>,
     /// The transfer encoding.
     pub transfer_encoding: heapless::Vec<TransferEncoding, 4>,
     /// The keep-alive parameters.
@@ -92,8 +86,6 @@ where
         let mut content_length = None;
         let mut transfer_encoding = Vec::new();
         let mut keep_alive = None;
-        #[cfg(any(feature = "date-header-u8", feature = "date-header-chrono"))]
-        let mut date = None;
 
         for header in response.headers {
             if header.name.eq_ignore_ascii_case("content-type") {
@@ -111,11 +103,6 @@ where
                     .map_err(|_| Error::Codec)?;
             } else if header.name.eq_ignore_ascii_case("keep-alive") {
                 keep_alive.replace(header.value.try_into().map_err(|_| Error::Codec)?);
-            } else {
-                #[cfg(any(feature = "date-header-u8", feature = "date-header-chrono"))]
-                if header.name.eq_ignore_ascii_case("date") {
-                    date.replace(header.value.try_into().map_err(|_| Error::Codec)?);
-                }
             }
         }
 
@@ -145,8 +132,6 @@ where
             status,
             content_type,
             content_length,
-            #[cfg(any(feature = "date-header-u8", feature = "date-header-chrono"))]
-            date,
             transfer_encoding,
             keep_alive,
             header_buf,
@@ -808,38 +793,6 @@ mod tests {
         assert_eq!(0, reader.read(&mut buf).await.unwrap());
         assert_eq!(0, reader.read(&mut buf).await.unwrap());
         assert_eq!(b"XYYYYYYYYYYYYYYYY", &body);
-    }
-
-    #[tokio::test]
-    async fn can_see_date_header() {
-        let mut conn = FakeSingleReadConnection::new(
-            b"HTTP/1.1 200 OK\r\nDate: Mon, 01 Jan 2025 11:22:33 GMT\r\n\r\nHAPPY NEW YEAR",
-        );
-        let mut header_buf = [0; 200];
-        let response = Response::read(&mut conn, Method::GET, &mut header_buf).await.unwrap();
-
-        #[cfg(any(feature = "date-header-u8", feature = "date-header-chrono"))]
-        let d = response.date.unwrap().date;
-
-        #[cfg(feature = "date-header-u8")]
-        assert_eq!(d.unwrap(), *b"Mon, 01 Jan 2025 11:22:33 GMT");
-
-        #[cfg(feature = "date-header-chrono")]
-        {
-            use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-            let compare: NaiveDateTime = NaiveDateTime::new(
-                NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-                NaiveTime::from_hms_opt(11, 22, 33).unwrap(),
-            );
-            assert_eq!(d.unwrap().0, compare);
-        }
-
-        #[cfg(not(any(feature = "date-header-u8", feature = "date-header-chrono")))]
-        {
-            let body = response.body().read_to_end().await.unwrap();
-            assert_eq!(b"HAPPY NEW YEAR", body);
-            assert!(conn.is_exhausted());
-        }
     }
 
     struct FakeSingleReadConnection {

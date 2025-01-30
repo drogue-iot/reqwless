@@ -31,7 +31,6 @@ nourl = "0.1.1"
 esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", features = [
     "async",
 ], optional = true }
-chrono = { version = "0.4", default-features = false, optional = true }
 
 [dev-dependencies]
 hyper = { version = "0.14.23", features = ["full"] }
@@ -47,7 +46,6 @@ rand = "0.8"
 
 [features]
 default = ["embedded-tls"]
-alloc = ["embedded-tls?/alloc", "chrono?/alloc"]
 defmt = [
     "dep:defmt",
     "embedded-io/defmt-03",
@@ -55,6 +53,4 @@ defmt = [
     "embedded-tls?/defmt",
     "nourl/defmt",
 ]
-date-header-u8 = []
-date-header-chrono = ["dep:chrono", "alloc"]
 accept-header = []

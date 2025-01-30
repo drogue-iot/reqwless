@@ -1,11 +1,4 @@
-#[cfg(feature = "date-header-u8")]
-#[cfg(feature = "date-header-chrono")]
-compile_error!("Specify zero or one of features date-header-u8, date-header-chrono");
-#[cfg(feature = "date-header-chrono")]
-use chrono::NaiveDateTime;
-
 /// HTTP content types
-
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ContentType {
@@ -102,62 +95,5 @@ impl<'a> TryFrom<&'a [u8]> for KeepAlive {
             }
         }
         Ok(keep_alive)
-    }
-}
-
-#[cfg(feature = "date-header-chrono")]
-#[derive(Debug, Eq, PartialEq)]
-pub struct NaiveDateTimeHeaderValue(pub NaiveDateTime);
-
-#[cfg(all(feature = "defmt", feature = "date-header-chrono"))]
-extern crate alloc;
-#[cfg(all(feature = "defmt", feature = "date-header-chrono"))]
-use alloc::string::ToString;
-#[cfg(all(feature = "defmt", feature = "date-header-chrono"))]
-impl defmt::Format for NaiveDateTimeHeaderValue {
-    fn format(self: &Self, f: defmt::Formatter) {
-        defmt::write!(
-            f,
-            "{:?}",
-            self.0.format("%a, %d %b %Y %H:%M:%S GMT").to_string().as_str()
-        );
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg(any(feature = "date-header-u8", feature = "date-header-chrono"))]
-pub struct HeaderDate {
-    #[cfg(feature = "date-header-u8")]
-    pub date: Option<[u8; 29]>, // like "Mon, 03 Jul 2024 12:34:56 GMT"
-    #[cfg(feature = "date-header-chrono")]
-    pub date: Option<NaiveDateTimeHeaderValue>,
-}
-
-#[cfg(feature = "date-header-u8")]
-impl<'a> TryFrom<&'a [u8]> for HeaderDate {
-    type Error = ();
-
-    fn try_from(from: &'a [u8]) -> Result<Self, Self::Error> {
-        let mut buf: [u8; 29] = [b' '; 29];
-        buf.copy_from_slice(&from[..29]);
-        Ok(Self { date: Some(buf) })
-    }
-}
-
-#[cfg(feature = "date-header-chrono")]
-impl<'a> TryFrom<&'a [u8]> for HeaderDate {
-    type Error = ();
-
-    fn try_from(from: &'a [u8]) -> Result<Self, Self::Error> {
-        use core::str;
-        if let Ok(s) = str::from_utf8(&from[5..]) {
-            if let Ok((dt, _rem)) = NaiveDateTime::parse_and_remainder(s, "%d %b %Y %H:%M:%S") {
-                return Ok(Self {
-                    date: Some(NaiveDateTimeHeaderValue(dt)),
-                });
-            }
-        }
-        Err(())
     }
 }
