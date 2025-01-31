@@ -53,4 +53,3 @@ defmt = [
     "embedded-tls?/defmt",
     "nourl/defmt",
 ]
-accept-header = []

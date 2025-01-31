@@ -18,7 +18,6 @@ where
     pub(crate) host: Option<&'req str>,
     pub(crate) body: Option<B>,
     pub(crate) content_type: Option<ContentType>,
-    #[cfg(feature = "accept-header")]
     pub(crate) accept: Option<ContentType>,
     pub(crate) extra_headers: Option<&'req [(&'req str, &'req str)]>,
 }
@@ -33,7 +32,6 @@ impl Default for Request<'_, ()> {
             host: None,
             body: None,
             content_type: None,
-            #[cfg(feature = "accept-header")]
             accept: None,
             extra_headers: None,
         }
@@ -58,7 +56,6 @@ where
     /// Set the content type header for the request.
     fn content_type(self, content_type: ContentType) -> Self;
     /// Set the accept header for the request.
-    #[cfg(feature = "accept-header")]
     fn accept(self, content_type: ContentType) -> Self;
     /// Set the basic authentication header for the request.
     fn basic_auth(self, username: &'req str, password: &'req str) -> Self;
@@ -151,7 +148,6 @@ where
         if let Some(content_type) = &self.content_type {
             write_header(c, "Content-Type", content_type.as_str()).await?;
         }
-        #[cfg(feature = "accept-header")]
         if let Some(accept) = &self.accept {
             write_header(c, "Accept", accept.as_str()).await?;
         }
@@ -204,7 +200,6 @@ where
             host: self.0.host,
             body: Some(body),
             content_type: self.0.content_type,
-            #[cfg(feature = "accept-header")]
             accept: self.0.accept,
             extra_headers: self.0.extra_headers,
         })
@@ -220,7 +215,6 @@ where
         self
     }
 
-    #[cfg(feature = "accept-header")]
     fn accept(mut self, content_type: ContentType) -> Self {
         self.0.accept.replace(content_type);
         self
@@ -405,7 +399,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "accept-header")]
     #[tokio::test]
     async fn with_accept_header() {
         let mut buffer: Vec<u8> = Vec::new();

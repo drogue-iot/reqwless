@@ -471,7 +471,6 @@ where
         self
     }
 
-    #[cfg(feature = "accept-header")]
     fn accept(mut self, content_type: ContentType) -> Self {
         self.request = Some(self.request.unwrap().accept(content_type));
         self
@@ -642,7 +641,6 @@ where
         self
     }
 
-    #[cfg(feature = "accept-header")]
     fn accept(mut self, content_type: ContentType) -> Self {
         self.request = self.request.accept(content_type);
         self
