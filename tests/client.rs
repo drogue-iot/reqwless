@@ -259,6 +259,42 @@ async fn test_resource_drogue_cloud_sandbox() {
     }
 }
 
+#[ignore]
+#[tokio::test]
+#[cfg(feature = "embedded-tls")]
+async fn test_request_response_tls_chunked() {
+    use core::str;
+    use std::fs;
+
+    use reqwless::client::{TlsConfig, TlsVerify};
+
+    setup();
+    let mut tls_read_buf: [u8; 16384] = [0; 16384];
+    let mut tls_write_buf: [u8; 16384] = [0; 16384];
+    let mut client = HttpClient::new_with_tls(
+        &TCP,
+        &PUBLIC_DNS,
+        TlsConfig::new(OsRng.next_u64(), &mut tls_read_buf, &mut tls_write_buf, TlsVerify::None),
+    );
+    let mut rx_buf = [0; 8192];
+
+    // The server must support TLS1.3
+    // Also, if requests on embedded platforms fail with Error::Dns, then try to
+    // enable the "alloc" feature on embedded-tls to enable RSA ciphers.
+    let mut request = client
+        .request(Method::GET, "https://api.dictionaryapi.dev/api/v2/entries/en/orange")
+        .await
+        .unwrap();
+
+    let response = request.send(&mut rx_buf).await.unwrap();
+
+    let body = str::from_utf8(response.body().read_to_end().await.unwrap()).unwrap();
+    fs::write("tests/orange-actual.json", body).unwrap();
+
+    let expected = std::fs::read_to_string("tests/orange.json").unwrap();
+    assert_eq!(expected, body);
+}
+
 #[tokio::test]
 async fn test_request_response_notls_buffered() {
     setup();
