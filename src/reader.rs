@@ -48,6 +48,7 @@ where
 {
     pub(crate) buffer: ReadBuffer<'buf>,
     pub(crate) stream: &'resp mut B,
+    pub(crate) force_local_buffer: bool,
 }
 
 impl<'resp, 'buf, B> BufferingReader<'resp, 'buf, B>
@@ -58,6 +59,7 @@ where
         Self {
             buffer: ReadBuffer::new(buffer, loaded),
             stream,
+            force_local_buffer: false,
         }
     }
 }
@@ -88,10 +90,10 @@ where
     C: TryBufRead,
 {
     async fn fill_buf(&mut self) -> Result<&[u8], ErrorKind> {
-        // We need to consume the loaded bytes before we read mode.
+        // We need to consume the loaded bytes before we read more.
         if self.buffer.is_empty() {
             // The matches/if let dance is to fix lifetime of the borrowed inner connection.
-            if self.stream.try_fill_buf().await.is_some() {
+            if !self.force_local_buffer && self.stream.try_fill_buf().await.is_some() {
                 if let Some(result) = self.stream.try_fill_buf().await {
                     return result.map_err(|e| e.kind());
                 }
