@@ -34,6 +34,8 @@ The client is still lacking many features, but can perform basic HTTP GET/PUT/PO
 
 NOTE: TLS verification is not supported in no_std environments for `embedded-tls`.
 
+In addition to common headers like `.content_type()` on requests, broader `.headers()` functions on both request and response objects access arbitrary header values.
+
 If you are missing a feature or would like an improvement, please raise an issue or a PR.
 
 ## TLS 1.2*, 1.3 and Supported Cipher Suites
