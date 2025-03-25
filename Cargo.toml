@@ -53,4 +53,5 @@ defmt = [
     "embedded-io-async/defmt-03",
     "embedded-tls?/defmt",
     "nourl/defmt",
+    "heapless/defmt-03",
 ]
