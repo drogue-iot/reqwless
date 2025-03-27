@@ -8,7 +8,7 @@ use reqwless::client::HttpClient;
 use reqwless::headers::ContentType;
 use reqwless::request::{Method, RequestBody, RequestBuilder};
 use reqwless::response::Status;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::sync::Once;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -31,11 +31,7 @@ static TCP: TokioTcp = TokioTcp;
 static LOOPBACK_DNS: LoopbackDns = LoopbackDns;
 static PUBLIC_DNS: StdDns = StdDns;
 
-#[tokio::test]
-async fn test_request_response_notls() {
-    setup();
-    let addr = ([127, 0, 0, 1], 0).into();
-
+async fn request_response_notls(addr: SocketAddr) {
     let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(echo)) });
 
     let server = Server::bind(&addr).serve(service);
@@ -49,7 +45,7 @@ async fn test_request_response_notls() {
         }
     });
 
-    let url = format!("http://127.0.0.1:{}", addr.port());
+    let url = format!("http://{addr}");
     let mut client = HttpClient::new(&TCP, &LOOPBACK_DNS);
     let mut rx_buf = [0; 4096];
     for _ in 0..2 {
@@ -66,6 +62,13 @@ async fn test_request_response_notls() {
 
     tx.send(()).unwrap();
     t.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_request_response_notls() {
+    setup();
+    request_response_notls(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))).await;
+    request_response_notls(SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0))).await;
 }
 
 #[tokio::test]
