@@ -27,7 +27,7 @@ log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
 embedded-tls = { version = "0.17", default-features = false, optional = true }
 rand_chacha = { version = "0.3", default-features = false }
-nourl = "0.1.1"
+nourl = "0.1.2"
 esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", features = [
     "async",
 ], optional = true }
@@ -53,4 +53,5 @@ defmt = [
     "embedded-io-async/defmt-03",
     "embedded-tls?/defmt",
     "nourl/defmt",
+    "heapless/defmt-03",
 ]

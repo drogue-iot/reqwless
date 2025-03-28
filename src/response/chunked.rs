@@ -151,6 +151,7 @@ where
                     loaded: self.raw_body.buffer.loaded,
                 },
                 stream: self.raw_body.stream,
+                force_local_buffer: true,
             },
             chunk_remaining: self.chunk_remaining,
         };
@@ -158,16 +159,17 @@ where
         let mut len = 0;
         while !reader.raw_body.buffer.buffer.is_empty() {
             // Read some
-            let read = reader.fill_buf().await?.len();
-            len += read;
+            let read = reader.fill_buf().await?;
+            let read_len = read.len();
+            len += read_len;
 
             // Make sure we don't erase the newly read data
             let was_loaded = reader.raw_body.buffer.loaded;
-            let fake_loaded = read.min(was_loaded);
+            let fake_loaded = read_len.min(was_loaded);
             reader.raw_body.buffer.loaded = fake_loaded;
 
             // Consume the returned buffer
-            reader.consume(read);
+            reader.consume(read_len);
 
             if reader.is_done() {
                 // If we're done, we don't care about the rest of the housekeeping.
