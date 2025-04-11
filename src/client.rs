@@ -131,7 +131,7 @@ where
         if url.scheme() == UrlScheme::HTTPS {
             #[cfg(feature = "esp-mbedtls")]
             if let Some(tls) = self.tls.as_mut() {
-                let mut servername = host.as_bytes().to_vec();
+                let mut servername = url.host().as_bytes().to_vec();
                 servername.push(0);
                 let mut session = esp_mbedtls::asynch::Session::new(
                     conn,
