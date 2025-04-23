@@ -162,7 +162,7 @@ where
                 }
                 let mut conn: embedded_tls::TlsConnection<'conn, T::Connection<'conn>, embedded_tls::Aes128GcmSha256> =
                     embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
-                conn.open::<_, embedded_tls::NoVerify>(TlsContext::new(&config, &mut rng))
+                conn.open(TlsContext::new(&config, embedded_tls::UnsecureProvider::new(rng)))
                     .await?;
                 Ok(HttpConnection::Tls(conn))
             } else {
