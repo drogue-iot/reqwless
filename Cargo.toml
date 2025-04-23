@@ -25,7 +25,7 @@ base64 = { version = "0.21.0", default-features = false }
 rand_core = { version = "0.6", default-features = true }
 log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
-embedded-tls = { version = "0.17", default-features = false, optional = true }
+embedded-tls = { git = "https://github.com/Frostie314159/embedded-tls.git", default-features = false, optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", features = [
     "async",
