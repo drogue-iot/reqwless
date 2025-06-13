@@ -103,6 +103,26 @@ impl<'req> Request<'req, ()> {
     pub fn head(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
         Self::new(Method::HEAD, path)
     }
+
+    /// Create a new PATCH http request.
+    pub fn patch(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
+        Self::new(Method::PATCH, path)
+    }
+
+    /// Create a new OPTIONS http request.
+    pub fn options(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
+        Self::new(Method::OPTIONS, path)
+    }
+
+    /// Create a new CONNECT http request.
+    pub fn connect(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
+        Self::new(Method::CONNECT, path)
+    }
+
+    /// Create a new TRACE http request.
+    pub fn trace(path: &'req str) -> DefaultRequestBuilder<'req, ()> {
+        Self::new(Method::TRACE, path)
+    }
 }
 
 impl<'req, B> Request<'req, B>
@@ -244,6 +264,14 @@ pub enum Method {
     DELETE,
     /// HEAD
     HEAD,
+    /// PATCH
+    PATCH,
+    /// OPTIONS
+    OPTIONS,
+    /// CONNECT
+    CONNECT,
+    /// TRACE
+    TRACE,
 }
 
 impl Method {
@@ -255,6 +283,10 @@ impl Method {
             Method::GET => "GET",
             Method::DELETE => "DELETE",
             Method::HEAD => "HEAD",
+            Method::PATCH => "PATCH",
+            Method::OPTIONS => "OPTIONS",
+            Method::CONNECT => "CONNECT",
+            Method::TRACE => "TRACE",
         }
     }
 }
