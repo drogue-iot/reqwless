@@ -113,25 +113,25 @@ where
         &'conn mut self,
         url: &Url<'_>,
     ) -> Result<HttpConnection<'conn, T::Connection<'conn>>, Error> {
-        let host = url.host();
-        let port = url.port_or_default();
+        // If the host is an IP, we skip the DNS lookup.
+        let socket_address = if let Some(socket_address) = url.host_socket_address() {
+            socket_address
+        } else {
+            SocketAddr::new(
+                self.dns
+                    .get_host_by_name(url.host(), embedded_nal_async::AddrType::Either)
+                    .await
+                    .map_err(|_| Error::Dns)?,
+                url.port_or_default(),
+            )
+        };
 
-        let remote = self
-            .dns
-            .get_host_by_name(host, embedded_nal_async::AddrType::Either)
-            .await
-            .map_err(|_| Error::Dns)?;
-
-        let conn = self
-            .client
-            .connect(SocketAddr::new(remote, port))
-            .await
-            .map_err(|e| e.kind())?;
+        let conn = self.client.connect(socket_address).await.map_err(|e| e.kind())?;
 
         if url.scheme() == UrlScheme::HTTPS {
             #[cfg(feature = "esp-mbedtls")]
             if let Some(tls) = self.tls.as_mut() {
-                let mut servername = host.as_bytes().to_vec();
+                let mut servername = url.host().as_bytes().to_vec();
                 servername.push(0);
                 let mut session = esp_mbedtls::asynch::Session::new(
                     conn,
@@ -162,7 +162,7 @@ where
                 }
                 let mut conn: embedded_tls::TlsConnection<'conn, T::Connection<'conn>, embedded_tls::Aes128GcmSha256> =
                     embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
-                conn.open::<_, embedded_tls::NoVerify>(TlsContext::new(&config, &mut rng))
+                conn.open(TlsContext::new(&config, embedded_tls::UnsecureProvider::new(rng)))
                     .await?;
                 Ok(HttpConnection::Tls(conn))
             } else {
@@ -724,7 +724,7 @@ mod tests {
         let mut buffer = VecBuffer::default();
         let mut conn = HttpConnection::Plain(&mut buffer);
 
-        static CHUNKS: [&'static [u8]; 2] = [b"PART1", b"PART2"];
+        static CHUNKS: [&[u8]; 2] = [b"PART1", b"PART2"];
         let request = Request::new(Method::POST, "/").body(ChunkedBody(&CHUNKS)).build();
         conn.write_request(&request).await.unwrap();
 
@@ -740,7 +740,7 @@ mod tests {
         let mut tx_buf = [0; 1024];
         let mut conn = HttpConnection::Plain(&mut buffer).into_buffered(&mut tx_buf);
 
-        static CHUNKS: [&'static [u8]; 2] = [b"PART1", b"PART2"];
+        static CHUNKS: [&[u8]; 2] = [b"PART1", b"PART2"];
         let request = Request::new(Method::POST, "/").body(ChunkedBody(&CHUNKS)).build();
         conn.write_request(&request).await.unwrap();
 
