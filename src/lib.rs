@@ -16,7 +16,7 @@ pub mod response;
 
 /// Errors that can be returned by this library.
 #[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(all(feature = "defmt", not(feature = "esp-mbedtls")), derive(defmt::Format))]
 pub enum Error {
     /// An error with DNS (it's always DNS)
     Dns,
@@ -40,6 +40,23 @@ pub enum Error {
     IncorrectBodyWritten,
     /// The underlying connection was closed while being used
     ConnectionAborted,
+}
+
+#[cfg(all(feature = "defmt", feature = "esp-mbedtls"))]
+impl defmt::Format for Error {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            Error::Dns => defmt::write!(fmt, "Dns"),
+            Error::Network(e) => defmt::write!(fmt, "Network({})", e),//, defmt::Debug2Format(e)),
+            Error::Codec => defmt::write!(fmt, "Codec"),
+            Error::InvalidUrl(e) => defmt::write!(fmt, "InvalidUrl({})", e),
+            Error::Tls(e) => defmt::write!(fmt, "Tls({:?})", defmt::Debug2Format(e)),
+            Error::BufferTooSmall => defmt::write!(fmt, "BufferTooSmall"),
+            Error::AlreadySent => defmt::write!(fmt, "AlreadySent"),
+            Error::IncorrectBodyWritten => defmt::write!(fmt, "IncorrectBodyWritten"),
+            Error::ConnectionAborted => defmt::write!(fmt, "ConnectionAborted"),
+        }
+    }
 }
 
 impl embedded_io::Error for Error {

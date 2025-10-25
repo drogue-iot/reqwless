@@ -12,6 +12,7 @@ use embedded_io::ErrorType;
 use embedded_io_async::{Read, Write};
 use embedded_nal_async::{Dns, TcpConnect};
 use nourl::{Url, UrlScheme};
+use heapless::Vec;
 
 /// An async HTTP client that can establish a TCP connection and perform
 /// HTTP requests.
@@ -131,8 +132,12 @@ where
         if url.scheme() == UrlScheme::HTTPS {
             #[cfg(feature = "esp-mbedtls")]
             if let Some(tls) = self.tls.as_mut() {
-                let mut servername = host.as_bytes().to_vec();
-                servername.push(0);
+                let servername = {
+                    let mut vec = Vec::<u8, 256>::new(); // 256 bytes should be enough for most hostnames
+                    vec.extend_from_slice(host.as_bytes()).map_err(|_| Error::InvalidUrl(nourl::Error::UnsupportedScheme))?;
+                    vec.push(0).map_err(|_| Error::InvalidUrl(nourl::Error::UnsupportedScheme))?;
+                    vec
+                };
                 let mut session = esp_mbedtls::asynch::Session::new(
                     conn,
                     esp_mbedtls::Mode::Client {
