@@ -14,6 +14,14 @@ mod reader;
 pub mod request;
 pub mod response;
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl core::error::Error for Error {}
+
 /// Errors that can be returned by this library.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -76,7 +84,7 @@ impl From<embedded_tls::TlsError> for Error {
 
 /// Re-export those members since they're used for [client::TlsConfig].
 #[cfg(feature = "esp-mbedtls")]
-pub use esp_mbedtls::{Certificates, TlsVersion, X509, TlsReference};
+pub use esp_mbedtls::{Certificates, TlsReference, TlsVersion, X509};
 
 #[cfg(feature = "esp-mbedtls")]
 impl From<esp_mbedtls::TlsError> for Error {
@@ -119,7 +127,7 @@ where
     async fn try_fill_buf(&mut self) -> Option<Result<&[u8], Self::Error>> {
         // embedded-tls has its own internal buffer, let's prefer that if we can
         #[cfg(feature = "embedded-tls")]
-        if let Self::Tls(ref mut tls) = self {
+        if let Self::Tls(ref mut tls) = *self {
             use embedded_io_async::{BufRead, Error};
             return Some(tls.fill_buf().await.map_err(|e| e.kind()));
         }

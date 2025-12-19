@@ -1,9 +1,19 @@
+#![allow(dead_code)]
+
 use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_io_async::{ErrorType, Read, Write};
 use embedded_nal_async::AddrType;
 use reqwless::TryBufRead;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use tokio::net::TcpStream;
+
+impl core::fmt::Display for TestError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl core::error::Error for TestError {}
 
 #[derive(Debug)]
 pub struct TestError;
@@ -36,10 +46,10 @@ impl embedded_nal_async::Dns for StdDns {
         for address in (host, 0).to_socket_addrs()? {
             match address {
                 SocketAddr::V4(a) if addr_type == AddrType::IPv4 || addr_type == AddrType::Either => {
-                    return Ok(IpAddr::V4(a.ip().octets().into()))
+                    return Ok(IpAddr::V4(a.ip().octets().into()));
                 }
                 SocketAddr::V6(a) if addr_type == AddrType::IPv6 || addr_type == AddrType::Either => {
-                    return Ok(IpAddr::V6(a.ip().octets().into()))
+                    return Ok(IpAddr::V6(a.ip().octets().into()));
                 }
                 _ => {}
             }
@@ -70,6 +80,10 @@ impl Read for TokioStream {
 impl Write for TokioStream {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.0.write(buf).await
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.0.flush().await
     }
 }
 
