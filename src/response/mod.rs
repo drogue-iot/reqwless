@@ -537,10 +537,10 @@ mod tests {
 
     use super::{Status, StatusCode};
     use crate::{
+        Error, TryBufRead,
         reader::BufferingReader,
         request::Method,
-        response::{chunked::ChunkedBodyReader, Response},
-        Error, TryBufRead,
+        response::{Response, chunked::ChunkedBodyReader},
     };
 
     #[tokio::test]

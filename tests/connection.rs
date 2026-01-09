@@ -18,6 +18,14 @@ impl core::error::Error for TestError {}
 #[derive(Debug)]
 pub struct TestError;
 
+impl core::fmt::Display for TestError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "TestError")
+    }
+}
+
+impl std::error::Error for TestError {}
+
 impl embedded_io::Error for TestError {
     fn kind(&self) -> embedded_io::ErrorKind {
         embedded_io::ErrorKind::Other
