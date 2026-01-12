@@ -7,14 +7,6 @@ use reqwless::TryBufRead;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use tokio::net::TcpStream;
 
-impl core::fmt::Display for TestError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl core::error::Error for TestError {}
-
 #[derive(Debug)]
 pub struct TestError;
 

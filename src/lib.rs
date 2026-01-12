@@ -14,14 +14,6 @@ mod reader;
 pub mod request;
 pub mod response;
 
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl core::error::Error for Error {}
-
 /// Errors that can be returned by this library.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
