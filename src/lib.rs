@@ -42,6 +42,14 @@ pub enum Error {
     ConnectionAborted,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl core::error::Error for Error {}
+
 impl embedded_io::Error for Error {
     fn kind(&self) -> embedded_io::ErrorKind {
         match self {
@@ -76,7 +84,7 @@ impl From<embedded_tls::TlsError> for Error {
 
 /// Re-export those members since they're used for [client::TlsConfig].
 #[cfg(feature = "esp-mbedtls")]
-pub use esp_mbedtls::{Certificates, TlsVersion, X509, TlsReference};
+pub use esp_mbedtls::{Certificates, TlsReference, TlsVersion, X509};
 
 #[cfg(feature = "esp-mbedtls")]
 impl From<esp_mbedtls::TlsError> for Error {

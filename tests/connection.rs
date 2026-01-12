@@ -8,6 +8,14 @@ use tokio::net::TcpStream;
 #[derive(Debug)]
 pub struct TestError;
 
+impl core::fmt::Display for TestError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "TestError")
+    }
+}
+
+impl std::error::Error for TestError {}
+
 impl embedded_io::Error for TestError {
     fn kind(&self) -> embedded_io::ErrorKind {
         embedded_io::ErrorKind::Other
@@ -70,6 +78,10 @@ impl Read for TokioStream {
 impl Write for TokioStream {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.0.write(buf).await
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.0.flush().await
     }
 }
 

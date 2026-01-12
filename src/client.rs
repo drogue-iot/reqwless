@@ -151,7 +151,7 @@ where
 
             #[cfg(feature = "embedded-tls")]
             if let Some(tls) = self.tls.as_mut() {
-                use embedded_tls::{TlsConfig, TlsContext};
+                use embedded_tls::{TlsConfig, TlsContext, UnsecureProvider};
                 use rand_chacha::ChaCha8Rng;
                 use rand_core::{RngCore, SeedableRng};
                 let mut rng = ChaCha8Rng::seed_from_u64(tls.seed);
@@ -162,7 +162,8 @@ where
                 }
                 let mut conn: embedded_tls::TlsConnection<'conn, T::Connection<'conn>, embedded_tls::Aes128GcmSha256> =
                     embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
-                conn.open(TlsContext::new(&config, embedded_tls::UnsecureProvider::new(rng)))
+
+                conn.open(TlsContext::new(&config, UnsecureProvider::new::<embedded_tls::Aes128GcmSha256>(rng)))
                     .await?;
                 Ok(HttpConnection::Tls(conn))
             } else {
@@ -679,6 +680,10 @@ mod tests {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.0.extend_from_slice(buf);
             Ok(buf.len())
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 

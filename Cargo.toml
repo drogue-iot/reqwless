@@ -14,18 +14,18 @@ keywords = ["embedded", "async", "http", "no_std"]
 exclude = [".github"]
 
 [dependencies]
-buffered-io = { version = "0.5.4" }
-embedded-io = { version = "0.6" }
-embedded-io-async = { version = "0.6" }
-embedded-nal-async = "0.8.0"
+buffered-io = { version = "0.6.0" }
+embedded-io = { version = "0.7" }
+embedded-io-async = { version = "0.7" }
+embedded-nal-async = "0.9"
 httparse = { version = "1.8.0", default-features = false }
-heapless = "0.8"
+heapless = "0.9"
 hex = { version = "0.4", default-features = false }
 base64 = { version = "0.21.0", default-features = false }
 rand_core = { version = "0.6", default-features = true }
 log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
-embedded-tls = { git = "https://github.com/Frostie314159/embedded-tls.git", default-features = false, optional = true }
+embedded-tls = { version = "0.18", default-features = false, optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", features = [
     "async",
@@ -37,8 +37,8 @@ hyper = { version = "0.14.23", features = ["full"] }
 tokio = { version = "1.21.2", features = ["full"] }
 tokio-rustls = { version = "0.23.4" }
 futures-util = { version = "0.3" }
-embedded-io-async = { version = "0.6", features = ["std"] }
-embedded-io-adapters = { version = "0.6", features = ["std", "tokio-1"] }
+embedded-io-async = { version = "0.7", features = ["std"] }
+embedded-io-adapters = { version = "0.7", features = ["std", "tokio-1"] }
 rustls-pemfile = "1.0"
 env_logger = "0.10"
 log = "0.4"
@@ -49,9 +49,9 @@ default = ["embedded-tls"]
 alloc = ["embedded-tls?/alloc"]
 defmt = [
     "dep:defmt",
-    "embedded-io/defmt-03",
-    "embedded-io-async/defmt-03",
+    "embedded-io/defmt",
+    "embedded-io-async/defmt",
     "embedded-tls?/defmt",
     "nourl/defmt",
-    "heapless/defmt-03",
+    "heapless/defmt",
 ]

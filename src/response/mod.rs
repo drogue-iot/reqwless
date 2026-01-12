@@ -141,7 +141,7 @@ where
     }
 
     /// Get the response headers
-    pub fn headers(&self) -> HeaderIterator {
+    pub fn headers(&self) -> HeaderIterator<'_> {
         let mut iterator = HeaderIterator(0, [httparse::EMPTY_HEADER; 64]);
         let mut response = httparse::Response::new(&mut iterator.1);
         response.parse(&self.header_buf[..self.header_len]).unwrap();
@@ -537,10 +537,10 @@ mod tests {
 
     use super::{Status, StatusCode};
     use crate::{
+        Error, TryBufRead,
         reader::BufferingReader,
         request::Method,
-        response::{chunked::ChunkedBodyReader, Response},
-        Error, TryBufRead,
+        response::{Response, chunked::ChunkedBodyReader},
     };
 
     #[tokio::test]
