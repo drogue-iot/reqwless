@@ -2,11 +2,15 @@
 
 ## Unreleased
 
+## v0.14.0 (2026-01-12)
+
 * Upgrade to embedded-io 0.7
 * Upgrade to embedded-tls 0.18
 * Add setter for accept header on request
 * Add patch, options, connect and trace request methods
 * Fix bug in reading chunked response 
+* Add embedded-tls certificate verification
+* Add allow ip address as host
 
 ## v0.13.0 (2024-10-21)
 
