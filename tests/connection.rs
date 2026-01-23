@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_io_async::{ErrorType, Read, Write};
 use embedded_nal_async::AddrType;
@@ -44,10 +46,10 @@ impl embedded_nal_async::Dns for StdDns {
         for address in (host, 0).to_socket_addrs()? {
             match address {
                 SocketAddr::V4(a) if addr_type == AddrType::IPv4 || addr_type == AddrType::Either => {
-                    return Ok(IpAddr::V4(a.ip().octets().into()))
+                    return Ok(IpAddr::V4(a.ip().octets().into()));
                 }
                 SocketAddr::V6(a) if addr_type == AddrType::IPv6 || addr_type == AddrType::Either => {
-                    return Ok(IpAddr::V6(a.ip().octets().into()))
+                    return Ok(IpAddr::V6(a.ip().octets().into()));
                 }
                 _ => {}
             }

@@ -1,17 +1,25 @@
+use crate::Error;
 /// Client using embedded-nal-async traits to establish connections and perform HTTP requests.
 ///
 use crate::body_writer::{BufferingChunkedBodyWriter, ChunkedBodyWriter, FixedBodyWriter};
 use crate::headers::ContentType;
 use crate::request::*;
 use crate::response::*;
-use crate::Error;
 use buffered_io::asynch::BufferedWrite;
 use core::net::SocketAddr;
 use embedded_io::Error as _;
 use embedded_io::ErrorType;
 use embedded_io_async::{Read, Write};
 use embedded_nal_async::{Dns, TcpConnect};
+#[cfg(feature = "embedded-tls")]
+use embedded_tls::{
+    Aes128GcmSha256, CryptoProvider, NoClock, SignatureScheme, TlsError, TlsVerifier, pki::CertVerifier,
+};
 use nourl::{Url, UrlScheme};
+#[cfg(feature = "embedded-tls")]
+use p256::ecdsa::{DerSignature, signature::SignerMut};
+#[cfg(feature = "embedded-tls")]
+use rand_core::CryptoRngCore;
 
 /// An async HTTP client that can establish a TCP connection and perform
 /// HTTP requests.
@@ -48,6 +56,34 @@ pub struct TlsConfig<'a> {
     verify: TlsVerify<'a>,
 }
 
+#[cfg(feature = "embedded-tls")]
+struct Provider {
+    rng: rand_chacha::ChaCha8Rng,
+    verifier: CertVerifier<Aes128GcmSha256, NoClock, 4096>,
+}
+
+#[cfg(feature = "embedded-tls")]
+impl CryptoProvider for Provider {
+    type CipherSuite = Aes128GcmSha256;
+    type Signature = DerSignature;
+
+    fn rng(&mut self) -> impl CryptoRngCore {
+        &mut self.rng
+    }
+
+    fn verifier(&mut self) -> Result<&mut impl TlsVerifier<Self::CipherSuite>, TlsError> {
+        Ok(&mut self.verifier)
+    }
+
+    fn signer(&mut self, key_der: &[u8]) -> Result<(impl SignerMut<Self::Signature>, SignatureScheme), TlsError> {
+        use p256::{SecretKey, ecdsa::SigningKey};
+
+        let secret_key = SecretKey::from_sec1_der(key_der).map_err(|_| TlsError::InvalidPrivateKey)?;
+
+        Ok((SigningKey::from(&secret_key), SignatureScheme::EcdsaSecp256r1Sha256))
+    }
+}
+
 /// Supported verification modes.
 #[cfg(feature = "embedded-tls")]
 pub enum TlsVerify<'a> {
@@ -55,6 +91,15 @@ pub enum TlsVerify<'a> {
     None,
     /// Use pre-shared keys for verifying
     Psk { identity: &'a [u8], psk: &'a [u8] },
+    /// Use certificates for verifying
+    /// ca: CA cert in DER format
+    /// cert: Optional client cert in DER format (needed only for client verification)
+    /// key: Optional client privkey in DER format (needed only for client verification)
+    Certificate {
+        ca: &'a [u8],
+        cert: Option<&'a [u8]>,
+        key: Option<&'a [u8]>,
+    },
 }
 
 #[cfg(feature = "embedded-tls")]
@@ -153,18 +198,47 @@ where
             if let Some(tls) = self.tls.as_mut() {
                 use embedded_tls::{TlsConfig, TlsContext, UnsecureProvider};
                 use rand_chacha::ChaCha8Rng;
-                use rand_core::{RngCore, SeedableRng};
-                let mut rng = ChaCha8Rng::seed_from_u64(tls.seed);
-                tls.seed = rng.next_u64();
+                use rand_core::SeedableRng;
+                let rng = ChaCha8Rng::seed_from_u64(tls.seed);
                 let mut config = TlsConfig::new().with_server_name(url.host());
-                if let TlsVerify::Psk { identity, psk } = tls.verify {
-                    config = config.with_psk(psk, &[identity]);
-                }
+
                 let mut conn: embedded_tls::TlsConnection<'conn, T::Connection<'conn>, embedded_tls::Aes128GcmSha256> =
                     embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
 
-                conn.open(TlsContext::new(&config, UnsecureProvider::new::<embedded_tls::Aes128GcmSha256>(rng)))
-                    .await?;
+                match tls.verify {
+                    TlsVerify::None => {
+                        use embedded_tls::UnsecureProvider;
+                        conn.open(TlsContext::new(&config, UnsecureProvider::new(rng))).await?;
+                    }
+                    TlsVerify::Psk { identity, psk } => {
+                        use embedded_tls::UnsecureProvider;
+                        config = config.with_psk(psk, &[identity]);
+                        conn.open(TlsContext::new(&config, UnsecureProvider::new(rng))).await?;
+                    }
+                    TlsVerify::Certificate { ca, cert, key } => {
+                        use embedded_tls::Certificate;
+
+                        config = config.with_ca(Certificate::X509(ca));
+
+                        if let Some(cert) = cert {
+                            config = config.with_cert(Certificate::X509(cert));
+                        }
+
+                        if let Some(key) = key {
+                            let k = pkcs8::PrivateKeyInfo::try_from(key).map_err(|_| TlsError::InvalidPrivateKey)?;
+                            config = config.with_priv_key(k.private_key);
+                        }
+
+                        conn.open(TlsContext::new(
+                            &config,
+                            Provider {
+                                rng: rng,
+                                verifier: embedded_tls::pki::CertVerifier::new(),
+                            },
+                        ))
+                        .await?;
+                    }
+                }
                 Ok(HttpConnection::Tls(conn))
             } else {
                 Ok(HttpConnection::Plain(conn))
@@ -683,7 +757,7 @@ mod tests {
         }
 
         async fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
+            self.0.flush().await
         }
     }
 

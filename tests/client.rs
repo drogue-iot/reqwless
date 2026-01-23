@@ -2,8 +2,8 @@ use embedded_io_async::{BufRead, Write};
 use hyper::server::conn::Http;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use reqwless::client::HttpClient;
 use reqwless::headers::ContentType;
 use reqwless::request::{Method, RequestBody, RequestBuilder};
@@ -12,8 +12,8 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::sync::Once;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
-use tokio_rustls::rustls;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls;
 
 mod connection;
 
@@ -168,8 +168,8 @@ async fn test_resource_rustls() {
     let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
 
     let test_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
-    let certs = load_certs(&test_dir.join("certs").join("cert.pem"));
-    let privkey = load_private_key(&test_dir.join("certs").join("key.pem"));
+    let certs = load_certs(&test_dir.join("certs").join("server-chain-cert.pem"));
+    let privkey = load_private_key(&test_dir.join("certs").join("server-key.pem"));
 
     let versions = &[&rustls::version::TLS13];
     let config = rustls::ServerConfig::builder()
@@ -202,13 +202,24 @@ async fn test_resource_rustls() {
         }
     });
 
+    let ca = include_bytes!("certs/ca-cert.der");
+
     let mut tls_read_buf: [u8; 16384] = [0; 16384];
     let mut tls_write_buf: [u8; 16384] = [0; 16384];
     let url = format!("https://localhost:{}", addr.port());
     let mut client = HttpClient::new_with_tls(
         &TCP,
         &LOOPBACK_DNS,
-        TlsConfig::new(OsRng.next_u64(), &mut tls_read_buf, &mut tls_write_buf, TlsVerify::None),
+        TlsConfig::new(
+            OsRng.next_u64(),
+            &mut tls_read_buf,
+            &mut tls_write_buf,
+            TlsVerify::Certificate {
+                ca: ca,
+                cert: None,
+                key: None,
+            },
+        ),
     );
     let mut rx_buf = [0; 4096];
     let mut resource = client.resource(&url).await.unwrap();
@@ -406,6 +417,7 @@ fn load_private_key(filename: &std::path::PathBuf) -> rustls::PrivateKey {
         match rustls_pemfile::read_one(&mut reader).expect("cannot parse private key .pem file") {
             Some(rustls_pemfile::Item::RSAKey(key)) => return rustls::PrivateKey(key),
             Some(rustls_pemfile::Item::PKCS8Key(key)) => return rustls::PrivateKey(key),
+            Some(rustls_pemfile::Item::ECKey(key)) => return rustls::PrivateKey(key),
             None => break,
             _ => {}
         }

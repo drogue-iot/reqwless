@@ -127,7 +127,7 @@ where
     async fn try_fill_buf(&mut self) -> Option<Result<&[u8], Self::Error>> {
         // embedded-tls has its own internal buffer, let's prefer that if we can
         #[cfg(feature = "embedded-tls")]
-        if let Self::Tls(ref mut tls) = self {
+        if let Self::Tls(ref mut tls) = *self {
             use embedded_io_async::{BufRead, Error};
             return Some(tls.fill_buf().await.map_err(|e| e.kind()));
         }
