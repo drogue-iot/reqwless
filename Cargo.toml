@@ -34,9 +34,7 @@ p256 = { version = "0.13", default-features = false, features = [
 embedded-tls = { git = "https://github.com/drogue-iot/embedded-tls.git", default-features = false, features = ["rustpki"], optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 nourl = "0.1.2"
-esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", features = [
-    "async",
-], optional = true }
+esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", optional = true }
 
 [dev-dependencies]
 hyper = { version = "0.14.23", features = ["full"] }
