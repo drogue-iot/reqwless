@@ -196,7 +196,7 @@ where
 
             #[cfg(feature = "embedded-tls")]
             if let Some(tls) = self.tls.as_mut() {
-                use embedded_tls::{TlsConfig, TlsContext, UnsecureProvider};
+                use embedded_tls::{TlsConfig, TlsContext};
                 use rand_chacha::ChaCha8Rng;
                 use rand_core::SeedableRng;
                 let rng = ChaCha8Rng::seed_from_u64(tls.seed);
