@@ -272,6 +272,8 @@ pub enum Method {
     CONNECT,
     /// TRACE
     TRACE,
+    /// REPORT
+    REPORT,
 }
 
 impl Method {
@@ -287,6 +289,7 @@ impl Method {
             Method::OPTIONS => "OPTIONS",
             Method::CONNECT => "CONNECT",
             Method::TRACE => "TRACE",
+            Method::REPORT => "REPORT",
         }
     }
 }
