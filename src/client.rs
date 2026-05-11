@@ -197,9 +197,9 @@ where
                 ses_conf.min_version = tls.version;
                 ses_conf.server_name = Some(sname);
                 let conf = mbedtls_rs::SessionConfig::Client(ses_conf);
-                let mut session = mbedtls_rs::Session::new(tls.tls_reference, conn, &conf).unwrap();
+                let mut session = mbedtls_rs::Session::new(tls.tls_reference, conn, &conf)?;
 
-                session.connect().await.unwrap();
+                session.connect().await?;
                 Ok(HttpConnection::Tls(session))
             } else {
                 Ok(HttpConnection::Plain(conn))

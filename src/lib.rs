@@ -93,6 +93,14 @@ impl From<mbedtls_rs::TlsError> for Error {
     }
 }
 
+#[cfg(feature = "mbedtls-rs")]
+impl From<mbedtls_rs::SessionError> for Error {
+    fn from(e: mbedtls_rs::SessionError) -> Error {
+        use embedded_io::Error as _;
+        Error::Network(e.kind())
+    }
+}
+
 impl From<ParseIntError> for Error {
     fn from(_: ParseIntError) -> Error {
         Error::Codec
