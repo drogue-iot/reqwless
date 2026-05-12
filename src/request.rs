@@ -1,6 +1,6 @@
+use crate::Error;
 /// Low level API for encoding requests and decoding responses.
 use crate::headers::ContentType;
-use crate::Error;
 use core::fmt::Write as _;
 use embedded_io::Error as _;
 use embedded_io_async::Write;
@@ -148,7 +148,7 @@ where
         if let Some(auth) = &self.auth {
             match auth {
                 Auth::Basic { username, password } => {
-                    use base64::engine::{general_purpose, Engine as _};
+                    use base64::engine::{Engine as _, general_purpose};
 
                     let mut combined: String<128> = String::new();
                     write!(combined, "{}:{}", username, password).map_err(|_| Error::Codec)?;
@@ -272,6 +272,10 @@ pub enum Method {
     CONNECT,
     /// TRACE
     TRACE,
+    /// REPORT
+    REPORT,
+    /// PROPFIND
+    PROPFIND,
 }
 
 impl Method {
@@ -287,6 +291,8 @@ impl Method {
             Method::OPTIONS => "OPTIONS",
             Method::CONNECT => "CONNECT",
             Method::TRACE => "TRACE",
+            Method::REPORT => "REPORT",
+            Method::PROPFIND => "PROPFIND",
         }
     }
 }
