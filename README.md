@@ -113,6 +113,13 @@ If the command fails, then try and run without the limited set of signature algo
 openssl s_client -tls1_3 -ciphersuites TLS_AES_128_GCM_SHA256 -connect hostname:443
 ```
 
+`reqwless` uses `TLS_AES_128_GCM_SHA256` by default. To connect to servers that only accept
+`TLS_AES_256_GCM_SHA384`, enable the `aes256-sha384` feature:
+
+```toml
+reqwless = { version = "0.14.0", features = ["aes256-sha384"] }
+```
+
 If this works, then there are two options. Either enable the signature algorithms on the server by changing the private key from RSA to ECDSA or ed25519, or enable RSA keys on the client by specifying the `alloc` feature.
 This enables `alloc` on `embedded-tls` which in turn enables RSA signature algorithms.
 

@@ -31,10 +31,12 @@ p256 = { version = "0.13", default-features = false, features = [
     "ecdsa",
     "sha256",
 ] }
-embedded-tls = { git = "https://github.com/drogue-iot/embedded-tls.git", default-features = false, features = ["rustpki"], optional = true }
+# Oldest working revision with reqwless-compatible features, rustpki, and AES-256/SHA-384 support.
+embedded-tls = { git = "https://github.com/drogue-iot/embedded-tls.git", rev = "dd97196dfd56c836b6267dc89f1fe618094f72a3", default-features = false, features = ["rustpki"], optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 nourl = "0.1.2"
-esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", optional = true }
+# Pinned before esp-rs/mbedtls-rs#107 renamed the package to mbedtls-rs.
+esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/esp-mbedtls.git", rev = "0d86dccfdaa404d7c7da28bed30926ac51bdc411", optional = true }
 
 [dev-dependencies]
 hyper = { version = "0.14.23", features = ["full"] }
@@ -53,6 +55,7 @@ default = ["embedded-tls"]
 rsa = ["embedded-tls?/alloc", "embedded-tls?/rsa"]
 p384 = ["embedded-tls?/p384"]
 ed25519 = ["embedded-tls?/ed25519"]
+aes256-sha384 = ["embedded-tls"]
 defmt = [
     "dep:defmt",
     "embedded-io/defmt",
