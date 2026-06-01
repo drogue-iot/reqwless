@@ -11,7 +11,7 @@ traits from the `embedded-io` crate. No alloc or std lib required!
 It offers two sets of APIs:
 
 * A low-level `request` API which allows you to construct HTTP requests and write them to a `embedded-io` transport.
-* A higher level `client` API which uses the `embedded-nal-async` (+ optional `embedded-tls` / `esp-mbedtls`) crates to establish TCP + TLS connections.
+* A higher level `client` API which uses the `embedded-nal-async` (+ optional `embedded-tls` / `mbedtls-rs`) crates to establish TCP + TLS connections.
 
 ## example
 
@@ -30,7 +30,7 @@ let response = client
     .unwrap();
 ```
 
-The client is still lacking many features, but can perform basic HTTP GET/PUT/POST/DELETE requests with payloads. However, not all content types and status codes are implemented, and are added on a need basis.  For TLS, it uses either `embedded-tls` or `esp-mbedtls` as the transport.
+The client is still lacking many features, but can perform basic HTTP GET/PUT/POST/DELETE requests with payloads. However, not all content types and status codes are implemented, and are added on a need basis.  For TLS, it uses either `embedded-tls` or `mbedtls-rs` as the transport.
 
 NOTE: TLS verification is not supported in no_std environments for `embedded-tls`.
 
@@ -39,19 +39,19 @@ In addition to common headers like `.content_type()` on requests, broader `.head
 If you are missing a feature or would like an improvement, please raise an issue or a PR.
 
 ## TLS 1.2*, 1.3 and Supported Cipher Suites
-`reqwless` uses `embedded-tls` or `esp-mbedtls` to establish secure TLS connections for `https://..` urls.
+`reqwless` uses `embedded-tls` or `mbedtls-rs` to establish secure TLS connections for `https://..` urls.
 
-*TLS 1.2 is only supported with `esp-mbedtls`
+*TLS 1.2 is only supported with `mbedtls-rs`
 
 :warning: Note that both features cannot be used together and will cause a compilation error.
 
-:warning: The released version of `reqwless` does not support `esp-mbedtls`. The reason for this is that `esp-mbedtls` is not yet published to crates.io. One should specify `reqwless` as a git dependency to use `esp-mbedtls`.
+:warning: The released version of `reqwless` does not support `mbedtls-rs`. One should specify `reqwless` as a git dependency to use `mbedtls-rs`.
 
-### esp-mbedtls
+### mbedtls-rs
 **Can only be used on esp32 boards**
-`esp-mbedtls` supports TLS 1.2 and 1.3. It uses espressif's Rust wrapper over mbedtls, alongside optimizations such as hardware acceleration.
+`mbedtls-rs` supports TLS 1.2 and 1.3. It uses espressif's Rust wrapper over mbedtls, alongside optimizations such as hardware acceleration.
 
-To use, you need to enable the transitive dependency of `esp-mbedtls` for your SoC.
+To use, you need to enable the transitive dependency of `mbedtls-rs` for your SoC.
 Currently, the supported SoCs are:
 
  - `esp32`
@@ -62,10 +62,9 @@ Currently, the supported SoCs are:
 Cargo.toml: 
 
 ```toml
-reqwless = { version = "0.12.0", default-features = false, features = ["esp-mbedtls", "log"] }
-esp-mbedtls = { git = "https://github.com/esp-rs/esp-mbedtls.git",  features = ["esp32s3"] }
+reqwless = { version = "0.14.0", default-features = false, features = ["mbedtls-rs", "log"] }
+mbedtls-rs = { git = "https://github.com/esp-rs/mbedtls-rs.git", features = ["esp32s3"] }
 ```
-<!-- TODO: Update this when esp-mbedtls switches to the unified hal -->
 
 #### Example
 ```rust,ignore
@@ -73,15 +72,17 @@ esp-mbedtls = { git = "https://github.com/esp-rs/esp-mbedtls.git",  features = [
 let state = TcpClientState::<1, 4096, 4096>::new();
 let mut tcp_client = TcpClient::new(stack, &state);
 let dns_socket = DnsSocket::new(&stack);
-let mut rsa = Rsa::new(peripherals.RSA);
-let config = TlsConfig::new(
-    reqwless::TlsVersion::Tls1_3,
-    reqwless::Certificates {
-        ca_chain: reqwless::X509::pem(CERT.as_bytes()).ok(),
-        ..Default::default()
-    },
-    Some(&mut rsa), // Will use hardware acceleration
-);
+let mut tls_rng = /* RNG implementing rand_core::CryptoRng */;
+let tls = reqwless::Tls::new(&mut tls_rng).unwrap();
+let ca = reqwless::Certificate::new(reqwless::X509::PEM(
+    core::ffi::CStr::from_bytes_with_nul(CERT.as_bytes()).unwrap(),
+)).unwrap();
+let config = reqwless::ClientSessionConfig {
+    ca_chain: Some(ca),
+    min_version: reqwless::TlsVersion::Tls1_3,
+    ..Default::default()
+};
+let config = TlsConfig::new(config, tls.reference());
 let mut client = HttpClient::new_with_tls(&tcp_client, &dns_socket, config);
 
 let mut request = client
