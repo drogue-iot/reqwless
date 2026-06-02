@@ -1,9 +1,9 @@
 use embedded_io_adapters::tokio_1::FromTokio;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Server};
+use reqwless::Error;
 use reqwless::client::HttpConnection;
 use reqwless::request::RequestBuilder;
-use reqwless::Error;
 use reqwless::{headers::ContentType, request::Request};
 use std::str::from_utf8;
 use std::sync::Once;

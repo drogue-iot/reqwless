@@ -74,8 +74,10 @@ let mut tcp_client = TcpClient::new(stack, &state);
 let dns_socket = DnsSocket::new(&stack);
 let mut tls_rng = /* RNG implementing rand_core::CryptoRng */;
 let tls = reqwless::Tls::new(&mut tls_rng).unwrap();
+// CERT must be a NUL-terminated PEM byte slice, e.g.:
+// const CERT: &[u8] = b"-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n\0";
 let ca = reqwless::Certificate::new(reqwless::X509::PEM(
-    core::ffi::CStr::from_bytes_with_nul(CERT.as_bytes()).unwrap(),
+    core::ffi::CStr::from_bytes_with_nul(CERT).unwrap(),
 )).unwrap();
 let config = reqwless::ClientSessionConfig {
     ca_chain: Some(ca),
