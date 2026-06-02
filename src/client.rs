@@ -57,13 +57,15 @@ pub struct TlsConfig<'a> {
 }
 
 #[cfg(feature = "embedded-tls")]
-struct Provider {
+struct Provider<'a> {
     rng: rand_chacha::ChaCha8Rng,
-    verifier: CertVerifier<Aes128GcmSha256, NoClock, 4096>,
+    verifier: CertVerifier<'a, Aes128GcmSha256, NoClock, 4096>,
+    cert: Option<embedded_tls::Certificate<&'a [u8]>>,
+    priv_key: Option<&'a [u8]>,
 }
 
 #[cfg(feature = "embedded-tls")]
-impl CryptoProvider for Provider {
+impl<'a> CryptoProvider for Provider<'a> {
     type CipherSuite = Aes128GcmSha256;
     type Signature = DerSignature;
 
@@ -75,12 +77,18 @@ impl CryptoProvider for Provider {
         Ok(&mut self.verifier)
     }
 
-    fn signer(&mut self, key_der: &[u8]) -> Result<(impl SignerMut<Self::Signature>, SignatureScheme), TlsError> {
+    fn signer(&mut self) -> Result<(impl SignerMut<Self::Signature>, SignatureScheme), TlsError> {
+        use crate::fmt::Try;
         use p256::{SecretKey, ecdsa::SigningKey};
 
-        let secret_key = SecretKey::from_sec1_der(key_der).map_err(|_| TlsError::InvalidPrivateKey)?;
+        let priv_key_bytes = self.priv_key.into_result().map_err(|_| TlsError::InvalidPrivateKey)?;
+        let secret_key = SecretKey::from_sec1_der(priv_key_bytes).map_err(|_| TlsError::InvalidPrivateKey)?;
 
-        Ok((SigningKey::from(&secret_key), SignatureScheme::EcdsaSecp256r1Sha256))
+        Ok((SigningKey::from(secret_key), SignatureScheme::EcdsaSecp256r1Sha256))
+    }
+
+    fn client_cert(&mut self) -> Option<embedded_tls::Certificate<impl AsRef<[u8]>>> {
+        self.cert
     }
 }
 
@@ -218,22 +226,21 @@ where
                     TlsVerify::Certificate { ca, cert, key } => {
                         use embedded_tls::Certificate;
 
-                        config = config.with_ca(Certificate::X509(ca));
-
-                        if let Some(cert) = cert {
-                            config = config.with_cert(Certificate::X509(cert));
-                        }
-
-                        if let Some(key) = key {
+                        let cert = cert.and_then(|cert| Some(Certificate::X509(cert)));
+                        let key = if let Some(key) = key {
                             let k = pkcs8::PrivateKeyInfo::try_from(key).map_err(|_| TlsError::InvalidPrivateKey)?;
-                            config = config.with_priv_key(k.private_key);
-                        }
+                            Some(k.private_key)
+                        } else {
+                            None
+                        };
 
                         conn.open(TlsContext::new(
                             &config,
                             Provider {
                                 rng: rng,
-                                verifier: embedded_tls::pki::CertVerifier::new(),
+                                verifier: embedded_tls::pki::CertVerifier::new(Certificate::X509(ca)),
+                                cert,
+                                priv_key: key,
                             },
                         ))
                         .await?;
