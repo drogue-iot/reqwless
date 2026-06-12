@@ -306,6 +306,45 @@ async fn test_request_response_tls_chunked() {
     assert_eq!(expected, body);
 }
 
+#[test]
+#[cfg(feature = "mbedtls-rs")]
+fn test_mbedtls_tls_config_verify_modes() {
+    use reqwless::client::{TlsConfig, TlsVerify};
+
+    #[allow(dead_code)]
+    fn accepts_mbedtls_verify_modes<'a>(
+        tls_reference: reqwless::TlsReference<'a>,
+        ca: &'a [u8],
+        cert: &'a [u8],
+        key: &'a [u8],
+    ) -> Result<TlsConfig<'a>, reqwless::Error> {
+        TlsConfig::new_with_verify(tls_reference, TlsVerify::None)?;
+        TlsConfig::new_with_verify(
+            tls_reference,
+            TlsVerify::Certificate {
+                ca,
+                cert: None,
+                key: None,
+            },
+        )?;
+        TlsConfig::new_with_verify(
+            tls_reference,
+            TlsVerify::Certificate {
+                ca,
+                cert: Some(cert),
+                key: Some(key),
+            },
+        )?;
+        TlsConfig::new_with_verify(
+            tls_reference,
+            TlsVerify::Psk {
+                identity: b"identity",
+                psk: b"psk",
+            },
+        )
+    }
+}
+
 #[tokio::test]
 async fn test_request_response_notls_buffered() {
     setup();

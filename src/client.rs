@@ -89,11 +89,16 @@ impl CryptoProvider for Provider<'_> {
 }
 
 /// Supported verification modes.
-#[cfg(feature = "embedded-tls")]
+#[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
 pub enum TlsVerify<'a> {
     /// No verification of the remote host
     None,
-    /// Use pre-shared keys for verifying
+    /// Use pre-shared keys for verifying.
+    ///
+    /// This mode is currently supported by the embedded-tls backend.
+    /// The mbedtls-rs backend returns [`Error::Codec`] from
+    /// `TlsConfig::new_with_verify` because its safe client configuration API
+    /// does not expose PSK configuration.
     Psk { identity: &'a [u8], psk: &'a [u8] },
     /// Use certificates for verifying
     /// ca: CA cert in DER format
@@ -122,6 +127,35 @@ impl<'a> TlsConfig<'a> {
 impl<'a, const RX_SIZE: usize, const TX_SIZE: usize> TlsConfig<'a, RX_SIZE, TX_SIZE> {
     pub fn new(config: mbedtls_rs::ClientSessionConfig<'a>, tls_reference: crate::TlsReference<'a>) -> Self {
         Self { config, tls_reference }
+    }
+}
+
+#[cfg(feature = "mbedtls-rs")]
+impl<'a> TlsConfig<'a> {
+    pub fn new_with_verify(tls_reference: crate::TlsReference<'a>, verify: TlsVerify<'a>) -> Result<Self, Error> {
+        let mut config = mbedtls_rs::ClientSessionConfig::new();
+
+        match verify {
+            TlsVerify::None => {
+                config.auth_mode = mbedtls_rs::AuthMode::None;
+            }
+            TlsVerify::Psk { .. } => {
+                return Err(Error::Codec);
+            }
+            TlsVerify::Certificate { ca, cert, key } => {
+                config.ca_chain = Some(mbedtls_rs::Certificate::new_no_copy(ca)?);
+                config.creds = match (cert, key) {
+                    (Some(cert), Some(key)) => Some(mbedtls_rs::Credentials {
+                        certificate: mbedtls_rs::Certificate::new_no_copy(cert)?,
+                        private_key: mbedtls_rs::PrivateKey::new(mbedtls_rs::X509::DER(key), None)?,
+                    }),
+                    (None, None) => None,
+                    _ => return Err(Error::Codec),
+                };
+            }
+        }
+
+        Ok(Self { config, tls_reference })
     }
 }
 
@@ -177,11 +211,7 @@ where
                 let servername = core::ffi::CStr::from_bytes_with_nul(&servername).map_err(|_| Error::Codec)?;
 
                 let session_config = mbedtls_rs::SessionConfig::Client(tls.config.clone());
-                let mut session = mbedtls_rs::Session::new(
-                    tls.tls_reference,
-                    conn,
-                    &session_config,
-                )?;
+                let mut session = mbedtls_rs::Session::new(tls.tls_reference, conn, &session_config)?;
                 session.set_server_name(servername)?;
 
                 session.connect().await?;
