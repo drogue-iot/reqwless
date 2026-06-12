@@ -94,11 +94,6 @@ pub enum TlsVerify<'a> {
     /// No verification of the remote host
     None,
     /// Use pre-shared keys for verifying.
-    ///
-    /// This mode is currently supported by the embedded-tls backend.
-    /// The mbedtls-rs backend returns [`Error::Codec`] from
-    /// `TlsConfig::new_with_verify` because its safe client configuration API
-    /// does not expose PSK configuration.
     Psk { identity: &'a [u8], psk: &'a [u8] },
     /// Use certificates for verifying
     /// ca: CA cert in DER format
