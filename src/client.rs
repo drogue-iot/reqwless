@@ -13,7 +13,7 @@ use embedded_io_async::{Read, Write};
 use embedded_nal_async::{Dns, TcpConnect};
 #[cfg(feature = "embedded-tls")]
 use embedded_tls::{
-    Aes128GcmSha256, CryptoProvider, NoClock, SignatureScheme, TlsError, TlsVerifier, pki::CertVerifier,
+    Aes128GcmSha256, Certificate, CryptoProvider, NoClock, SignatureScheme, TlsError, TlsVerifier, pki::CertVerifier,
 };
 use nourl::{Url, UrlScheme};
 #[cfg(feature = "embedded-tls")]
@@ -54,13 +54,15 @@ pub struct TlsConfig<'a> {
 }
 
 #[cfg(feature = "embedded-tls")]
-struct Provider {
+struct Provider<'a> {
     rng: rand_chacha::ChaCha8Rng,
-    verifier: CertVerifier<Aes128GcmSha256, NoClock, 4096>,
+    verifier: CertVerifier<'a, Aes128GcmSha256, NoClock, 4096>,
+    priv_key: Option<&'a [u8]>,
+    client_cert: Option<Certificate<&'a [u8]>>,
 }
 
 #[cfg(feature = "embedded-tls")]
-impl CryptoProvider for Provider {
+impl CryptoProvider for Provider<'_> {
     type CipherSuite = Aes128GcmSha256;
     type Signature = DerSignature;
 
@@ -72,12 +74,17 @@ impl CryptoProvider for Provider {
         Ok(&mut self.verifier)
     }
 
-    fn signer(&mut self, key_der: &[u8]) -> Result<(impl SignerMut<Self::Signature>, SignatureScheme), TlsError> {
+    fn signer(&mut self) -> Result<(impl SignerMut<Self::Signature>, SignatureScheme), TlsError> {
         use p256::{SecretKey, ecdsa::SigningKey};
 
+        let key_der = self.priv_key.ok_or(TlsError::InvalidPrivateKey)?;
         let secret_key = SecretKey::from_sec1_der(key_der).map_err(|_| TlsError::InvalidPrivateKey)?;
 
         Ok((SigningKey::from(&secret_key), SignatureScheme::EcdsaSecp256r1Sha256))
+    }
+
+    fn client_cert(&mut self) -> Option<Certificate<impl AsRef<[u8]>>> {
+        self.client_cert
     }
 }
 
@@ -194,35 +201,29 @@ where
                 let mut conn: embedded_tls::TlsConnection<'conn, T::Connection<'conn>, embedded_tls::Aes128GcmSha256> =
                     embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
 
-                match tls.verify {
+                match &tls.verify {
                     TlsVerify::None => {
                         use embedded_tls::UnsecureProvider;
                         conn.open(TlsContext::new(&config, UnsecureProvider::new(rng))).await?;
                     }
                     TlsVerify::Psk { identity, psk } => {
                         use embedded_tls::UnsecureProvider;
-                        config = config.with_psk(psk, &[identity]);
+                        config = config.with_psk(psk, &[*identity]);
                         conn.open(TlsContext::new(&config, UnsecureProvider::new(rng))).await?;
                     }
                     TlsVerify::Certificate { ca, cert, key } => {
-                        use embedded_tls::Certificate;
-
-                        config = config.with_ca(Certificate::X509(ca));
-
-                        if let Some(cert) = cert {
-                            config = config.with_cert(Certificate::X509(cert));
-                        }
-
-                        if let Some(key) = key {
-                            let k = pkcs8::PrivateKeyInfo::try_from(key).map_err(|_| TlsError::InvalidPrivateKey)?;
-                            config = config.with_priv_key(k.private_key);
-                        }
+                        let priv_key = (*key)
+                            .map(|key| pkcs8::PrivateKeyInfo::try_from(key).map(|private_key| private_key.private_key))
+                            .transpose()
+                            .map_err(|_| TlsError::InvalidPrivateKey)?;
 
                         conn.open(TlsContext::new(
                             &config,
                             Provider {
-                                rng: rng,
-                                verifier: embedded_tls::pki::CertVerifier::new(),
+                                rng,
+                                verifier: CertVerifier::new(Certificate::X509(*ca)),
+                                priv_key,
+                                client_cert: (*cert).map(Certificate::X509),
                             },
                         ))
                         .await?;
