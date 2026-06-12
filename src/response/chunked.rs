@@ -1,8 +1,8 @@
 use embedded_io_async::{BufRead, Error as _, ErrorType, Read};
 
 use crate::{
-    reader::{BufferingReader, ReadBuffer},
     Error, TryBufRead,
+    reader::{BufferingReader, ReadBuffer},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

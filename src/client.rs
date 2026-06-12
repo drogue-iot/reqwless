@@ -13,7 +13,7 @@ use embedded_io_async::{Read, Write};
 use embedded_nal_async::{Dns, TcpConnect};
 #[cfg(feature = "embedded-tls")]
 use embedded_tls::{
-    Aes128GcmSha256, CryptoProvider, NoClock, SignatureScheme, TlsError, TlsVerifier, pki::CertVerifier,
+    Aes128GcmSha256, Certificate, CryptoProvider, NoClock, SignatureScheme, TlsError, TlsVerifier, pki::CertVerifier,
 };
 use nourl::{Url, UrlScheme};
 #[cfg(feature = "embedded-tls")]
@@ -30,21 +30,18 @@ where
 {
     client: &'a T,
     dns: &'a D,
-    #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
+    #[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
     tls: Option<TlsConfig<'a>>,
 }
 
 /// Type for TLS configuration of HTTP client.
-#[cfg(feature = "esp-mbedtls")]
+#[cfg(feature = "mbedtls-rs")]
 pub struct TlsConfig<'a, const RX_SIZE: usize = 4096, const TX_SIZE: usize = 4096> {
-    /// Minimum TLS version for the connection
-    version: crate::TlsVersion,
-
-    /// Client certificates. See [esp_mbedtls::Certificates]
-    certificates: crate::Certificates<'a>,
+    /// Session configuration. See [mbedtls_rs::ClientSessionConfig].
+    config: mbedtls_rs::ClientSessionConfig<'a>,
 
     /// A reference to instance of the MbedTLS library.
-    tls_reference: esp_mbedtls::TlsReference<'a>,
+    tls_reference: mbedtls_rs::TlsReference<'a>,
 }
 
 /// Type for TLS configuration of HTTP client.
@@ -57,13 +54,15 @@ pub struct TlsConfig<'a> {
 }
 
 #[cfg(feature = "embedded-tls")]
-struct Provider {
+struct Provider<'a> {
     rng: rand_chacha::ChaCha8Rng,
-    verifier: CertVerifier<Aes128GcmSha256, NoClock, 4096>,
+    verifier: CertVerifier<'a, Aes128GcmSha256, NoClock, 4096>,
+    priv_key: Option<&'a [u8]>,
+    client_cert: Option<Certificate<&'a [u8]>>,
 }
 
 #[cfg(feature = "embedded-tls")]
-impl CryptoProvider for Provider {
+impl CryptoProvider for Provider<'_> {
     type CipherSuite = Aes128GcmSha256;
     type Signature = DerSignature;
 
@@ -75,21 +74,26 @@ impl CryptoProvider for Provider {
         Ok(&mut self.verifier)
     }
 
-    fn signer(&mut self, key_der: &[u8]) -> Result<(impl SignerMut<Self::Signature>, SignatureScheme), TlsError> {
+    fn signer(&mut self) -> Result<(impl SignerMut<Self::Signature>, SignatureScheme), TlsError> {
         use p256::{SecretKey, ecdsa::SigningKey};
 
+        let key_der = self.priv_key.ok_or(TlsError::InvalidPrivateKey)?;
         let secret_key = SecretKey::from_sec1_der(key_der).map_err(|_| TlsError::InvalidPrivateKey)?;
 
         Ok((SigningKey::from(&secret_key), SignatureScheme::EcdsaSecp256r1Sha256))
     }
+
+    fn client_cert(&mut self) -> Option<Certificate<impl AsRef<[u8]>>> {
+        self.client_cert
+    }
 }
 
 /// Supported verification modes.
-#[cfg(feature = "embedded-tls")]
+#[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
 pub enum TlsVerify<'a> {
     /// No verification of the remote host
     None,
-    /// Use pre-shared keys for verifying
+    /// Use pre-shared keys for verifying.
     Psk { identity: &'a [u8], psk: &'a [u8] },
     /// Use certificates for verifying
     /// ca: CA cert in DER format
@@ -114,18 +118,39 @@ impl<'a> TlsConfig<'a> {
     }
 }
 
-#[cfg(feature = "esp-mbedtls")]
+#[cfg(feature = "mbedtls-rs")]
 impl<'a, const RX_SIZE: usize, const TX_SIZE: usize> TlsConfig<'a, RX_SIZE, TX_SIZE> {
-    pub fn new(
-        version: crate::TlsVersion,
-        certificates: crate::Certificates<'a>,
-        tls_reference: crate::TlsReference<'a>,
-    ) -> Self {
-        Self {
-            version,
-            certificates,
-            tls_reference,
+    pub fn new(config: mbedtls_rs::ClientSessionConfig<'a>, tls_reference: crate::TlsReference<'a>) -> Self {
+        Self { config, tls_reference }
+    }
+}
+
+#[cfg(feature = "mbedtls-rs")]
+impl<'a> TlsConfig<'a> {
+    pub fn new_with_verify(tls_reference: crate::TlsReference<'a>, verify: TlsVerify<'a>) -> Result<Self, Error> {
+        let mut config = mbedtls_rs::ClientSessionConfig::new();
+
+        match verify {
+            TlsVerify::None => {
+                config.auth_mode = mbedtls_rs::AuthMode::None;
+            }
+            TlsVerify::Psk { .. } => {
+                return Err(Error::Codec);
+            }
+            TlsVerify::Certificate { ca, cert, key } => {
+                config.ca_chain = Some(mbedtls_rs::Certificate::new_no_copy(ca)?);
+                config.creds = match (cert, key) {
+                    (Some(cert), Some(key)) => Some(mbedtls_rs::Credentials {
+                        certificate: mbedtls_rs::Certificate::new_no_copy(cert)?,
+                        private_key: mbedtls_rs::PrivateKey::new(mbedtls_rs::X509::DER(key), None)?,
+                    }),
+                    (None, None) => None,
+                    _ => return Err(Error::Codec),
+                };
+            }
         }
+
+        Ok(Self { config, tls_reference })
     }
 }
 
@@ -139,13 +164,13 @@ where
         Self {
             client,
             dns,
-            #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
+            #[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
             tls: None,
         }
     }
 
     /// Create a new HTTP client for a given connection handle and a target host.
-    #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
+    #[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
     pub fn new_with_tls(client: &'a T, dns: &'a D, tls: TlsConfig<'a>) -> Self {
         Self {
             client,
@@ -174,19 +199,15 @@ where
             .map_err(|e| e.kind())?;
 
         if url.scheme() == UrlScheme::HTTPS {
-            #[cfg(feature = "esp-mbedtls")]
+            #[cfg(feature = "mbedtls-rs")]
             if let Some(tls) = self.tls.as_mut() {
                 let mut servername = host.as_bytes().to_vec();
                 servername.push(0);
-                let mut session = esp_mbedtls::asynch::Session::new(
-                    conn,
-                    esp_mbedtls::Mode::Client {
-                        servername: unsafe { core::ffi::CStr::from_bytes_with_nul_unchecked(&servername) },
-                    },
-                    tls.version,
-                    tls.certificates,
-                    tls.tls_reference,
-                )?;
+                let servername = core::ffi::CStr::from_bytes_with_nul(&servername).map_err(|_| Error::Codec)?;
+
+                let session_config = mbedtls_rs::SessionConfig::Client(tls.config.clone());
+                let mut session = mbedtls_rs::Session::new(tls.tls_reference, conn, &session_config)?;
+                session.set_server_name(servername)?;
 
                 session.connect().await?;
                 Ok(HttpConnection::Tls(session))
@@ -205,35 +226,29 @@ where
                 let mut conn: embedded_tls::TlsConnection<'conn, T::Connection<'conn>, embedded_tls::Aes128GcmSha256> =
                     embedded_tls::TlsConnection::new(conn, tls.read_buffer, tls.write_buffer);
 
-                match tls.verify {
+                match &tls.verify {
                     TlsVerify::None => {
                         use embedded_tls::UnsecureProvider;
                         conn.open(TlsContext::new(&config, UnsecureProvider::new(rng))).await?;
                     }
                     TlsVerify::Psk { identity, psk } => {
                         use embedded_tls::UnsecureProvider;
-                        config = config.with_psk(psk, &[identity]);
+                        config = config.with_psk(psk, &[*identity]);
                         conn.open(TlsContext::new(&config, UnsecureProvider::new(rng))).await?;
                     }
                     TlsVerify::Certificate { ca, cert, key } => {
-                        use embedded_tls::Certificate;
-
-                        config = config.with_ca(Certificate::X509(ca));
-
-                        if let Some(cert) = cert {
-                            config = config.with_cert(Certificate::X509(cert));
-                        }
-
-                        if let Some(key) = key {
-                            let k = pkcs8::PrivateKeyInfo::try_from(key).map_err(|_| TlsError::InvalidPrivateKey)?;
-                            config = config.with_priv_key(k.private_key);
-                        }
+                        let priv_key = (*key)
+                            .map(|key| pkcs8::PrivateKeyInfo::try_from(key).map(|private_key| private_key.private_key))
+                            .transpose()
+                            .map_err(|_| TlsError::InvalidPrivateKey)?;
 
                         conn.open(TlsContext::new(
                             &config,
                             Provider {
-                                rng: rng,
-                                verifier: embedded_tls::pki::CertVerifier::new(),
+                                rng,
+                                verifier: CertVerifier::new(Certificate::X509(*ca)),
+                                priv_key,
+                                client_cert: (*cert).map(Certificate::X509),
                             },
                         ))
                         .await?;
@@ -244,7 +259,7 @@ where
             } else {
                 Ok(HttpConnection::Plain(conn))
             }
-            #[cfg(all(not(feature = "embedded-tls"), not(feature = "esp-mbedtls")))]
+            #[cfg(all(not(feature = "embedded-tls"), not(feature = "mbedtls-rs")))]
             Err(Error::InvalidUrl(nourl::Error::UnsupportedScheme))
         } else {
             #[cfg(feature = "embedded-tls")]
@@ -298,11 +313,11 @@ where
 {
     Plain(C),
     PlainBuffered(BufferedWrite<'conn, C>),
-    #[cfg(feature = "esp-mbedtls")]
-    Tls(esp_mbedtls::asynch::Session<'conn, C>),
+    #[cfg(feature = "mbedtls-rs")]
+    Tls(mbedtls_rs::Session<'conn, C>),
     #[cfg(feature = "embedded-tls")]
     Tls(embedded_tls::TlsConnection<'conn, C, embedded_tls::Aes128GcmSha256>),
-    #[cfg(all(not(feature = "embedded-tls"), not(feature = "esp-mbedtls")))]
+    #[cfg(all(not(feature = "embedded-tls"), not(feature = "mbedtls-rs")))]
     Tls((&'conn mut (), core::convert::Infallible)), // Variant is impossible to create, but we need it to avoid "unused lifetime" warning
 }
 
@@ -400,13 +415,13 @@ where
                             writer.terminate().await.map_err(|e| e.kind())?;
                             buffered.clear();
                         }
-                        #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
+                        #[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
                         HttpConnection::Tls(c) => {
                             let mut writer = ChunkedBodyWriter::new(c);
                             body.write(&mut writer).await?;
                             writer.terminate().await.map_err(|e| e.kind())?;
                         }
-                        #[cfg(all(not(feature = "embedded-tls"), not(feature = "esp-mbedtls")))]
+                        #[cfg(all(not(feature = "embedded-tls"), not(feature = "mbedtls-rs")))]
                         HttpConnection::Tls(_) => unreachable!(),
                     };
                 }
@@ -431,9 +446,9 @@ where
         match self {
             Self::Plain(conn) => conn.read(buf).await.map_err(|e| e.kind()),
             Self::PlainBuffered(conn) => conn.read(buf).await.map_err(|e| e.kind()),
-            #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
+            #[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
             Self::Tls(conn) => conn.read(buf).await.map_err(|e| e.kind()),
-            #[cfg(not(any(feature = "embedded-tls", feature = "esp-mbedtls")))]
+            #[cfg(not(any(feature = "embedded-tls", feature = "mbedtls-rs")))]
             _ => unreachable!(),
         }
     }
@@ -447,9 +462,9 @@ where
         match self {
             Self::Plain(conn) => conn.write(buf).await.map_err(|e| e.kind()),
             Self::PlainBuffered(conn) => conn.write(buf).await.map_err(|e| e.kind()),
-            #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
+            #[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
             Self::Tls(conn) => conn.write(buf).await.map_err(|e| e.kind()),
-            #[cfg(not(any(feature = "embedded-tls", feature = "esp-mbedtls")))]
+            #[cfg(not(any(feature = "embedded-tls", feature = "mbedtls-rs")))]
             _ => unreachable!(),
         }
     }
@@ -458,9 +473,9 @@ where
         match self {
             Self::Plain(conn) => conn.flush().await.map_err(|e| e.kind()),
             Self::PlainBuffered(conn) => conn.flush().await.map_err(|e| e.kind()),
-            #[cfg(any(feature = "embedded-tls", feature = "esp-mbedtls"))]
+            #[cfg(any(feature = "embedded-tls", feature = "mbedtls-rs"))]
             Self::Tls(conn) => conn.flush().await.map_err(|e| e.kind()),
-            #[cfg(not(any(feature = "embedded-tls", feature = "esp-mbedtls")))]
+            #[cfg(not(any(feature = "embedded-tls", feature = "mbedtls-rs")))]
             _ => unreachable!(),
         }
     }
