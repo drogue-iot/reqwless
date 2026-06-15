@@ -77,8 +77,12 @@ async fn write_without_base_path() {
 #[tokio::test]
 async fn google_panic() {
     use std::net::SocketAddr;
-    let google_ip = [142, 250, 74, 110];
-    let addr = SocketAddr::from((google_ip, 80));
+
+    let addr: SocketAddr = tokio::net::lookup_host("www.google.com:80")
+        .await
+        .expect("DNS Resolution of www.google.com should work")
+        .find(|address| address.is_ipv4())
+        .expect("www.google.com DNS resolution should return at least one IPV4 address");
 
     let conn = tokio::net::TcpStream::connect(addr).await.unwrap();
     let mut conn = HttpConnection::Plain(TokioStream(FromTokio::new(conn)));
