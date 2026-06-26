@@ -34,7 +34,7 @@ p256 = { version = "0.13", default-features = false, features = [
 embedded-tls = { version = "0.19.0", default-features = false, features = ["rustpki"], optional = true }
 rand_chacha = { version = "0.3", default-features = false }
 nourl = "0.1.2"
-esp-mbedtls = { version = "0.1", git = "https://github.com/esp-rs/mbedtls-rs.git", optional = true, package = "mbedtls-rs" }
+mbedtls-rs = { version = "0.1", default-features = false, features = ["tls"], optional = true }
 
 [dev-dependencies]
 hyper = { version = "0.14.23", features = ["full"] }
@@ -53,11 +53,13 @@ default = ["embedded-tls"]
 rsa = ["embedded-tls?/alloc", "embedded-tls?/rsa"]
 p384 = ["embedded-tls?/p384"]
 ed25519 = ["embedded-tls?/ed25519"]
+mbedtls = ["dep:mbedtls-rs"]
 defmt = [
     "dep:defmt",
     "embedded-io/defmt",
     "embedded-io-async/defmt",
     "embedded-tls?/defmt",
+    "mbedtls-rs?/defmt",
     "nourl/defmt",
     "heapless/defmt",
 ]

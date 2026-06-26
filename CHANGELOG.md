@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Replace the git `esp-mbedtls` dependency with the released `mbedtls-rs` 0.1 crate. The Cargo feature is renamed `esp-mbedtls` -> `mbedtls`, and `client::TlsConfig::new` now takes a `TlsReference` and a `ClientSessionConfig` (re-exported from `mbedtls-rs`) instead of the old `Certificates` bundle.
+
 ## v0.14.0 (2026-01-12)
 
 * Upgrade to embedded-io 0.7

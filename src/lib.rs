@@ -30,8 +30,8 @@ pub enum Error {
     #[cfg(feature = "embedded-tls")]
     Tls(embedded_tls::TlsError),
     /// Tls Error
-    #[cfg(feature = "esp-mbedtls")]
-    Tls(esp_mbedtls::TlsError),
+    #[cfg(feature = "mbedtls")]
+    Tls(mbedtls_rs::SessionError),
     /// The provided buffer is too small
     BufferTooSmall,
     /// The request is already sent
@@ -83,12 +83,15 @@ impl From<embedded_tls::TlsError> for Error {
 }
 
 /// Re-export those members since they're used for [client::TlsConfig].
-#[cfg(feature = "esp-mbedtls")]
-pub use esp_mbedtls::{Certificates, TlsReference, TlsVersion, X509};
+#[cfg(feature = "mbedtls")]
+pub use mbedtls_rs::{
+    AuthMode, Certificate, ClientSessionConfig, Credentials, PrivateKey, SessionError, TlsReference,
+    TlsVersion, X509,
+};
 
-#[cfg(feature = "esp-mbedtls")]
-impl From<esp_mbedtls::TlsError> for Error {
-    fn from(e: esp_mbedtls::TlsError) -> Error {
+#[cfg(feature = "mbedtls")]
+impl From<mbedtls_rs::SessionError> for Error {
+    fn from(e: mbedtls_rs::SessionError) -> Error {
         Error::Tls(e)
     }
 }
