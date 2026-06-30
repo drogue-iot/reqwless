@@ -45,8 +45,6 @@ If you are missing a feature or would like an improvement, please raise an issue
 
 :warning: Note that both features cannot be used together and will cause a compilation error.
 
-:warning: The released version of `reqwless` does not support `mbedtls-rs`. The reason for this is that `mbedtls-rs` is not yet published to crates.io. One should specify `reqwless` as a git dependency to use `mbedtls-rs`.
-
 ### mbedtls-rs
 `mbedtls-rs` supports TLS 1.2 and 1.3. It uses [Espressif's Rust wrapper](https://github.com/esp-rs/mbedtls-rs) over [mbedtls](https://www.trustedfirmware.org/projects/mbed-tls/) and allows for optimizations such as hardware acceleration.
 
@@ -54,7 +52,7 @@ Cargo.toml:
 
 ```toml
 reqwless = { version = "0.14.0", default-features = false, features = ["mbedtls-rs", "log"] }
-mbedtls-rs = { git = "https://github.com/esp-rs/mbedtls-rs.git" }
+mbedtls-rs = { version = "0.1.0" }
 ```
 
 

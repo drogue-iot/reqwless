@@ -195,6 +195,7 @@ where
                         server_name: None, // don't set it here because it would reference a local variable
                         auth_mode: mbedtls_rs::AuthMode::Required,
                         min_version: tls.version,
+                        alpn_protocols: None, // reqwless uses a fixed application layer protocol anyway 
                     }),
                 )?;
                 session.set_server_name(core::ffi::CStr::from_bytes_with_nul(&servername).unwrap())?;
