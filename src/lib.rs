@@ -76,6 +76,9 @@ impl<E: embedded_io::Error> From<ReadExactError<E>> for Error {
 }
 
 #[cfg(feature = "embedded-tls")]
+pub use embedded_tls::{Aes128GcmSha256, Aes256GcmSha384};
+
+#[cfg(feature = "embedded-tls")]
 impl From<embedded_tls::TlsError> for Error {
     fn from(e: embedded_tls::TlsError) -> Error {
         Error::Tls(e)
