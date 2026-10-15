@@ -41,7 +41,7 @@ async fn test_request_response() {
     });
 
     let stream = TcpStream::connect(addr).await.unwrap();
-    let mut stream = HttpConnection::Plain(TokioStream(FromTokio::new(stream)));
+    let mut stream: HttpConnection<'_, TokioStream> = HttpConnection::Plain(TokioStream(FromTokio::new(stream)));
 
     let request = Request::post("/")
         .body(b"PING".as_slice())
@@ -85,7 +85,7 @@ async fn google_panic() {
         .expect("www.google.com DNS resolution should return at least one IPV4 address");
 
     let conn = tokio::net::TcpStream::connect(addr).await.unwrap();
-    let mut conn = HttpConnection::Plain(TokioStream(FromTokio::new(conn)));
+    let mut conn: HttpConnection<'_, TokioStream> = HttpConnection::Plain(TokioStream(FromTokio::new(conn)));
 
     let request = Request::get("/")
         .host("www.google.com")
