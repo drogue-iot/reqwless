@@ -22,17 +22,17 @@ httparse = { version = "1.8.0", default-features = false }
 heapless = "0.9"
 hex = { version = "0.4", default-features = false }
 base64 = { version = "0.21.0", default-features = false }
-rand_core = { version = "0.6.3", default-features = true }
+rand_core = { version = "0.6.3", default-features = true, optional = true}
 log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
-pkcs8 = "0.10.2"
+pkcs8 = { version = "0.10.2", optional = true }
 p256 = { version = "0.13", default-features = false, features = [
     "ecdh",
     "ecdsa",
     "sha256",
-] }
+], optional = true }
 embedded-tls = { version = "0.19.0", default-features = false, features = ["rustpki"], optional = true }
-rand_chacha = { version = "0.3", default-features = false }
+rand_chacha = { version = "0.3", default-features = false, optional = true}
 nourl = "0.2.0"
 mbedtls-rs = { version = "0.1.0", optional = true }
 
@@ -62,3 +62,4 @@ defmt = [
     "heapless/defmt",
     "mbedtls-rs?/defmt",
 ]
+embedded-tls = ["dep:embedded-tls", "dep:p256", "dep:rand_chacha", "dep:pkcs8", "dep:rand_core"]
