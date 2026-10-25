@@ -69,11 +69,13 @@ let mbedtls_lib_instance = mbedtls_rs::Tls::new(&mut trng).unwrap();
 // For debug messages:
 // mbedtls_lib_instance.set_debug(1);
 
+let mut write_buf = [0; 1024];
 let tls_config = TlsConfig::new(
     reqwless::TlsVersion::Tls1_2,
     reqwless::Certificate::new(reqwless::X509::PEM(CERT)).unwrap(),
     None, // optionally, add client certificate for mTLS
     mbedtls_lib_instance.reference(),
+    &mut write_buf, // collects writes into fewer TLS records
 );
 
 let header_buf = [0; 1024];
