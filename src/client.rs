@@ -51,6 +51,10 @@ pub struct TlsConfig<'a, const RX_SIZE: usize = 4096, const TX_SIZE: usize = 409
 
     /// A reference to instance of the MbedTLS library.
     tls_reference: mbedtls_rs::TlsReference<'a>,
+
+    /// Collects what is written, so that it is sent in as few TLS records as
+    /// possible: every write to a session is a record of its own.
+    write_buffer: &'a mut [u8],
 }
 
 /// Type for TLS configuration of HTTP client.
@@ -135,12 +139,14 @@ impl<'a, const RX_SIZE: usize, const TX_SIZE: usize> TlsConfig<'a, RX_SIZE, TX_S
         certificates: crate::Certificate<'a>,
         client_credentials: Option<crate::Credentials<'a>>,
         tls_reference: crate::TlsReference<'a>,
+        write_buffer: &'a mut [u8],
     ) -> Self {
         Self {
             version,
             certificates,
             client_credentials,
             tls_reference,
+            write_buffer,
         }
     }
 }
@@ -203,13 +209,14 @@ where
                         server_name: None, // don't set it here because it would reference a local variable
                         auth_mode: mbedtls_rs::AuthMode::Required,
                         min_version: tls.version,
-                        alpn_protocols: None, // reqwless uses a fixed application layer protocol anyway 
+                        alpn_protocols: None, // reqwless uses a fixed application layer protocol anyway
+                        ..mbedtls_rs::ClientSessionConfig::new()
                     }),
                 )?;
                 session.set_server_name(core::ffi::CStr::from_bytes_with_nul(&servername).unwrap())?;
 
                 session.connect().await?;
-                Ok(HttpConnection::Tls(session))
+                Ok(HttpConnection::Tls(BufferedWrite::new(session, tls.write_buffer)))
             } else {
                 Ok(HttpConnection::Plain(conn))
             }
@@ -318,7 +325,7 @@ where
     Plain(C),
     PlainBuffered(BufferedWrite<'conn, C>),
     #[cfg(feature = "mbedtls-rs")]
-    Tls(mbedtls_rs::Session<'conn, C>),
+    Tls(BufferedWrite<'conn, mbedtls_rs::Session<'conn, C>>),
     #[cfg(feature = "embedded-tls")]
     Tls(embedded_tls::TlsConnection<'conn, C, embedded_tls::Aes128GcmSha256>),
     #[cfg(all(not(feature = "embedded-tls"), not(feature = "mbedtls-rs")))]

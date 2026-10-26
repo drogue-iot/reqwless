@@ -34,7 +34,7 @@ p256 = { version = "0.13", default-features = false, features = [
 embedded-tls = { version = "0.19.0", default-features = false, features = ["rustpki"], optional = true }
 rand_chacha = { version = "0.3", default-features = false, optional = true}
 nourl = "0.2.0"
-mbedtls-rs = { version = "0.1.0", optional = true }
+mbedtls-rs = { version = "0.3", optional = true }
 
 [dev-dependencies]
 hyper = { version = "0.14.23", features = ["full"] }
