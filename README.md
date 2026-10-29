@@ -1,9 +1,9 @@
 # HTTP client for embedded devices
 
-[![CI](https://github.com/drogue-iot/reqwless/actions/workflows/ci.yaml/badge.svg)](https://github.com/drogue-iot/reqwless/actions/workflows/ci.yaml)
+[![CI](https://github.com/embassy-rs/reqwless/actions/workflows/ci.yaml/badge.svg)](https://github.com/embassy-rs/reqwless/actions/workflows/ci.yaml)
 [![crates.io](https://img.shields.io/crates/v/reqwless.svg)](https://crates.io/crates/reqwless)
 [![docs.rs](https://docs.rs/reqwless/badge.svg)](https://docs.rs/reqwless)
-[![Matrix](https://img.shields.io/matrix/drogue-iot:matrix.org)](https://matrix.to/#/#drogue-iot:matrix.org)
+[![Matrix](https://img.shields.io/matrix/embassy-rs:matrix.org)](https://matrix.to/#/#embassy-rs:matrix.org)
 
 The `reqwless` crate implements an HTTP client that can be used in `no_std` environment, with any transport that implements the 
 traits from the `embedded-io` crate. No alloc or std lib required!
